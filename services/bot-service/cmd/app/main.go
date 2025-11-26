@@ -6,8 +6,8 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/yourusername/telegram-news-feed/bot-service/config"
-	"github.com/yourusername/telegram-news-feed/bot-service/internal/infrastructure/logger"
+	"github.com/Conte777/newsflow/services/bot-service/config"
+	"github.com/Conte777/newsflow/services/bot-service/internal/infrastructure/logger"
 )
 
 func main() {
@@ -25,7 +25,7 @@ func main() {
 		Msg("Starting bot service")
 
 	// Create context with cancellation
-	ctx, cancel := context.WithCancel(context.Background())
+	_, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
 	// TODO: Initialize dependencies

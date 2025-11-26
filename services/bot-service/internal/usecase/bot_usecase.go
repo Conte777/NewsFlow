@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/yourusername/telegram-news-feed/bot-service/internal/domain"
+	"github.com/Conte777/newsflow/services/bot-service/internal/domain"
 	"github.com/rs/zerolog"
 )
 
