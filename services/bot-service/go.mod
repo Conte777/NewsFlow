@@ -6,6 +6,9 @@ require (
 	github.com/IBM/sarama v1.46.3
 	github.com/joho/godotenv v1.5.1
 	github.com/rs/zerolog v1.34.0
+	github.com/segmentio/kafka-go v0.4.49
+	github.com/stretchr/testify v1.11.1
+	github.com/testcontainers/testcontainers-go v0.26.0
 )
 
 require (
@@ -28,4 +31,9 @@ require (
 	golang.org/x/crypto v0.43.0 // indirect
 	golang.org/x/net v0.46.0 // indirect
 	golang.org/x/sys v0.37.0 // indirect
+)
+
+replace (
+	github.com/segmentio/kafka-go v0.4.49 => github.com/segmentio/kafka-go v0.4.49
+	github.com/stretchr/testify v1.8.4 => github.com/stretchr/testify v1.8.4
 )
