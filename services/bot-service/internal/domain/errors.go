@@ -20,4 +20,6 @@ var (
 
 	// ErrInvalidCommand is returned when command is invalid
 	ErrInvalidCommand = errors.New("invalid command")
+
+	ErrTelegramAPI = errors.New("telegram API error")
 )
