@@ -34,9 +34,9 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	// ===== INITIALIZE DEPENDENCIES =====
+	// ===== INITIALIZE DEPENDENCIES IN CORRECT ORDER =====
 
-	// Initialize Kafka Producer
+	// 1. Initialize Kafka Producer
 	log.Info().Msg("Initializing Kafka producer...")
 	kafkaProducer, err := kafka.NewProducer(cfg.Kafka, log)
 	if err != nil {
@@ -48,25 +48,27 @@ func main() {
 		}
 	}()
 
-	// Initialize Use Case first (нужен для Telegram Handler)
+	// 2. Initialize Bot UseCase (with nil telegram bot for now)
 	log.Info().Msg("Initializing bot use case...")
-	botUseCase := usecase.NewBotUseCase(kafkaProducer, nil, log) // Пока передаем nil для TelegramBot
+	botUseCase := usecase.NewBotUseCase(kafkaProducer, nil, log)
 
-	// Initialize Telegram Bot (теперь с 3 аргументами)
+	// 3. Initialize Telegram Bot Handler
 	log.Info().Msg("Initializing Telegram bot...")
 	telegramBot, err := telegram.NewHandler(cfg.Telegram.BotToken, log, botUseCase)
 	if err != nil {
 		log.Fatal().Err(err).Msg("Failed to create Telegram bot")
 	}
 	defer func() {
-		telegramBot.Stop()
+		if err := telegramBot.Stop(); err != nil {
+			log.Error().Err(err).Msg("Error stopping Telegram bot")
+		}
 		log.Info().Msg("Telegram bot stopped")
 	}()
 
-	// Update use case with actual TelegramBot
+	// 4. Update use case with actual TelegramBot
 	botUseCase.SetTelegramBot(telegramBot)
 
-	// Initialize Kafka Consumer
+	// 5. Initialize Kafka Consumer
 	log.Info().Msg("Initializing Kafka consumer...")
 	kafkaConsumer, err := kafka.NewConsumer(cfg.Kafka, log)
 	if err != nil {
@@ -78,7 +80,7 @@ func main() {
 		}
 	}()
 
-	// Wire consumer to use case - handler для обработки новостей из Kafka
+	// 6. Wire consumer to use case - handler для обработки новостей из Kafka
 	newsHandler := func(news *domain.NewsMessage) error {
 		log.Info().
 			Str("news_id", news.ID).
@@ -141,32 +143,6 @@ func main() {
 		}
 	}()
 
-	// Test Kafka producer (только для разработки)
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-
-		// Ждем немного чтобы все компоненты запустились
-		time.Sleep(3 * time.Second)
-
-		// Тестовое сообщение только если не продакшн
-		if cfg.Logging.Level == "debug" {
-			log.Info().Msg("Sending test subscription event...")
-
-			testSubscription := &domain.Subscription{
-				UserID:      123456789,
-				ChannelID:   "@test_channel",
-				ChannelName: "Test Channel",
-			}
-
-			if err := kafkaProducer.SendSubscriptionCreated(ctx, testSubscription); err != nil {
-				log.Error().Err(err).Msg("Failed to send test event")
-			} else {
-				log.Info().Msg("✅ Test event sent successfully!")
-			}
-		}
-	}()
-
 	log.Info().Msg("🎉 Bot service started successfully!")
 	log.Info().Msg("📱 Telegram bot is listening for messages...")
 	log.Info().Msg("📨 Kafka consumer is waiting for news...")
@@ -198,22 +174,13 @@ func main() {
 		close(shutdownDone)
 	}()
 
-	// Wait for graceful shutdown or timeout
+	// Wait for graceful shutdown or timeout (10 seconds)
 	select {
 	case <-shutdownDone:
 		log.Info().Msg("✅ All components stopped gracefully")
-	case <-time.After(15 * time.Second):
+	case <-time.After(10 * time.Second):
 		log.Warn().Msg("⏰ Timeout waiting for components to stop - forcing shutdown")
 	}
 
 	log.Info().Msg("👋 Bot service stopped")
-}
-
-// HealthCheck provides a simple health check endpoint (для будущего использования)
-func HealthCheck() bool {
-	// Здесь можно добавить проверки:
-	// - Подключение к Kafka
-	// - Подключение к Telegram API
-	// - Состояние внутренних компонентов
-	return true
 }

@@ -21,6 +21,9 @@ type BotUseCase interface {
 
 	// SendNews sends news to user
 	SendNews(ctx context.Context, news *NewsMessage) error
+
+	// Новый метод для установки TelegramBot
+	SetTelegramBot(bot TelegramBot)
 }
 
 // KafkaProducer defines interface for sending messages to Kafka
