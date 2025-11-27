@@ -48,9 +48,13 @@ func main() {
 		}
 	}()
 
-	// Initialize Telegram Bot
+	// Initialize Use Case first (нужен для Telegram Handler)
+	log.Info().Msg("Initializing bot use case...")
+	botUseCase := usecase.NewBotUseCase(kafkaProducer, nil, log) // Пока передаем nil для TelegramBot
+
+	// Initialize Telegram Bot (теперь с 3 аргументами)
 	log.Info().Msg("Initializing Telegram bot...")
-	telegramBot, err := telegram.NewHandler(cfg.Telegram.BotToken, log)
+	telegramBot, err := telegram.NewHandler(cfg.Telegram.BotToken, log, botUseCase)
 	if err != nil {
 		log.Fatal().Err(err).Msg("Failed to create Telegram bot")
 	}
@@ -59,9 +63,8 @@ func main() {
 		log.Info().Msg("Telegram bot stopped")
 	}()
 
-	// Initialize Use Case
-	log.Info().Msg("Initializing bot use case...")
-	botUseCase := usecase.NewBotUseCase(kafkaProducer, telegramBot, log)
+	// Update use case with actual TelegramBot
+	botUseCase.SetTelegramBot(telegramBot)
 
 	// Initialize Kafka Consumer
 	log.Info().Msg("Initializing Kafka consumer...")
