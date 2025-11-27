@@ -3,6 +3,10 @@ package telegram
 import (
 	"context"
 	"fmt"
+	"mime"
+	"net/http"
+	"net/url"
+	"path"
 	"strings"
 	"time"
 
@@ -17,14 +21,39 @@ type TelegramHandler struct {
 	bot        *tgbot.Bot
 	logger     zerolog.Logger
 	botUseCase domain.BotUseCase
+	httpClient *http.Client
 }
 
 // Константы для Telegram API
 const (
 	MaxMessageLength    = 4096
 	MessageSplitTimeout = 2 * time.Second
-	RequestTimeout      = 10 * time.Second
+	RequestTimeout      = 30 * time.Second
+	MaxMediaGroupSize   = 10
+	MaxRetries          = 3
+	RetryDelay          = 2 * time.Second
+	MaxFileSize         = 50 * 1024 * 1024 // 50MB - лимит Telegram для файлов
+	MaxPhotoSize        = 10 * 1024 * 1024 // 10MB - лимит для фото
+	MaxVideoSize        = 50 * 1024 * 1024 // 50MB - лимит для видео
 )
+
+// MediaType представляет тип медиа файла
+type MediaType string
+
+const (
+	MediaTypePhoto       MediaType = "photo"
+	MediaTypeVideo       MediaType = "video"
+	MediaTypeDocument    MediaType = "document"
+	MediaTypeUnsupported MediaType = "unsupported"
+)
+
+// MediaInfo содержит информацию о медиа файле
+type MediaInfo struct {
+	URL      string
+	Type     MediaType
+	MimeType string
+	FileName string
+}
 
 // NewHandler создает новый экземпляр TelegramHandler
 func NewHandler(token string, logger zerolog.Logger, botUseCase domain.BotUseCase) (domain.TelegramBot, error) {
@@ -51,6 +80,9 @@ func NewHandler(token string, logger zerolog.Logger, botUseCase domain.BotUseCas
 		bot:        bot,
 		logger:     logger,
 		botUseCase: botUseCase,
+		httpClient: &http.Client{
+			Timeout: RequestTimeout,
+		},
 	}, nil
 }
 
@@ -73,8 +105,6 @@ func (h *TelegramHandler) Start(ctx context.Context) error {
 // Stop останавливает бота
 func (h *TelegramHandler) Stop() error {
 	h.logger.Info().Msg("Stopping Telegram bot...")
-	// В этой версии библиотеки бот останавливается через контекст
-	// в методе Start, поэтому здесь просто логируем
 	return nil
 }
 
@@ -210,9 +240,7 @@ func (h *TelegramHandler) splitMessage(text string) []string {
 			// Если одна строка сама по себе слишком длинная, разбиваем её
 			if lineLength > MaxMessageLength {
 				splitLines := h.splitLongLine(line)
-				for _, splitLine := range splitLines {
-					parts = append(parts, splitLine)
-				}
+				parts = append(parts, splitLines...)
 				continue
 			}
 		}
@@ -327,38 +355,468 @@ func (h *TelegramHandler) logMessageSend(userID int64, length int, success bool,
 	logEvent.Msg("Message send attempt completed")
 }
 
-// SendMessageWithMedia отправляет сообщение с медиа пользователю
+// SendMessageWithMedia отправляет сообщение с медиа файлами пользователю
 func (h *TelegramHandler) SendMessageWithMedia(ctx context.Context, userID int64, text string, mediaURLs []string) error {
+	if len(mediaURLs) == 0 {
+		return h.SendMessage(ctx, userID, text)
+	}
+
 	h.logger.Info().
 		Int64("user_id", userID).
 		Int("media_count", len(mediaURLs)).
 		Msg("Sending message with media")
 
-	// Если есть медиа, добавляем информацию о них в текст
-	if len(mediaURLs) > 0 {
-		mediaInfo := fmt.Sprintf("\n\n<code>📎 Прикреплено медиа файлов: %d</code>", len(mediaURLs))
-
-		// Показываем первые несколько URL
-		maxUrlsToShow := 3
-		for i, url := range mediaURLs {
-			if i >= maxUrlsToShow {
-				mediaInfo += fmt.Sprintf("\n<code>... и ещё %d</code>", len(mediaURLs)-maxUrlsToShow)
-				break
-			}
-			// Обрезаем длинные URL для лучшего отображения
-			if len(url) > 50 {
-				url = url[:47] + "..."
-			}
-			mediaInfo += fmt.Sprintf("\n<code>• %s</code>", url)
-		}
-
-		text += mediaInfo
+	// Валидируем и классифицируем медиа файлы
+	mediaInfos, err := h.validateAndClassifyMedia(mediaURLs)
+	if err != nil {
+		return fmt.Errorf("media validation failed: %w", err)
 	}
 
-	return h.SendMessage(ctx, userID, text)
+	// Отправляем в зависимости от количества медиа
+	if len(mediaInfos) == 1 {
+		return h.sendSingleMedia(ctx, userID, text, mediaInfos[0])
+	} else if len(mediaInfos) <= MaxMediaGroupSize {
+		return h.sendMediaGroup(ctx, userID, text, mediaInfos)
+	} else {
+		return h.sendMultipleMediaGroups(ctx, userID, text, mediaInfos)
+	}
 }
 
-// ===== ОСТАЛЬНЫЕ МЕТОДЫ (без изменений) =====
+// validateAndClassifyMedia валидирует URL и определяет тип медиа
+func (h *TelegramHandler) validateAndClassifyMedia(mediaURLs []string) ([]MediaInfo, error) {
+	var mediaInfos []MediaInfo
+
+	for _, mediaURL := range mediaURLs {
+		// Валидируем URL
+		if err := h.validateMediaURL(mediaURL); err != nil {
+			return nil, err
+		}
+
+		// Определяем тип медиа
+		mediaInfo, err := h.classifyMedia(mediaURL)
+		if err != nil {
+			return nil, err
+		}
+
+		// Проверяем размер файла
+		if err := h.checkFileSize(mediaInfo); err != nil {
+			return nil, err
+		}
+
+		mediaInfos = append(mediaInfos, mediaInfo)
+	}
+
+	return mediaInfos, nil
+}
+
+// validateMediaURL валидирует URL медиа файла
+func (h *TelegramHandler) validateMediaURL(mediaURL string) error {
+	parsedURL, err := url.Parse(mediaURL)
+	if err != nil {
+		return fmt.Errorf("invalid URL format '%s': %w", mediaURL, err)
+	}
+
+	if parsedURL.Scheme != "http" && parsedURL.Scheme != "https" {
+		return fmt.Errorf("unsupported URL scheme '%s' for '%s'", parsedURL.Scheme, mediaURL)
+	}
+
+	// Проверяем что URL доступен (HEAD запрос)
+	req, err := http.NewRequest("HEAD", mediaURL, nil)
+	if err != nil {
+		return fmt.Errorf("failed to create HEAD request for '%s': %w", mediaURL, err)
+	}
+
+	resp, err := h.httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to access media URL '%s': %w", mediaURL, err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("media URL '%s' returned status %d", mediaURL, resp.StatusCode)
+	}
+
+	return nil
+}
+
+// classifyMedia определяет тип медиа файла по URL
+func (h *TelegramHandler) classifyMedia(mediaURL string) (MediaInfo, error) {
+	parsedURL, _ := url.Parse(mediaURL)
+	fileName := path.Base(parsedURL.Path)
+	ext := strings.ToLower(path.Ext(fileName))
+
+	// Определяем MIME тип по расширению
+	mimeType := mime.TypeByExtension(ext)
+	if mimeType == "" {
+		// Если не определили по расширению, пытаемся получить из URL
+		req, err := http.NewRequest("HEAD", mediaURL, nil)
+		if err == nil {
+			resp, err := h.httpClient.Do(req)
+			if err == nil {
+				defer resp.Body.Close()
+				contentType := resp.Header.Get("Content-Type")
+				if contentType != "" {
+					mimeType = contentType
+				}
+			}
+		}
+	}
+
+	// Классифицируем по MIME типу или расширению
+	mediaType := h.determineMediaType(mimeType, ext)
+
+	return MediaInfo{
+		URL:      mediaURL,
+		Type:     mediaType,
+		MimeType: mimeType,
+		FileName: fileName,
+	}, nil
+}
+
+// determineMediaType определяет тип медиа по MIME типу и расширению
+func (h *TelegramHandler) determineMediaType(mimeType, ext string) MediaType {
+	switch {
+	case strings.HasPrefix(mimeType, "image/"):
+		return MediaTypePhoto
+	case strings.HasPrefix(mimeType, "video/"):
+		return MediaTypeVideo
+	case strings.HasPrefix(mimeType, "application/") || strings.HasPrefix(mimeType, "text/"):
+		return MediaTypeDocument
+	}
+
+	// Если MIME тип не определился, пробуем по расширению
+	switch ext {
+	case ".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp":
+		return MediaTypePhoto
+	case ".mp4", ".avi", ".mov", ".mkv", ".webm":
+		return MediaTypeVideo
+	case ".pdf", ".doc", ".docx", ".txt", ".zip", ".rar":
+		return MediaTypeDocument
+	default:
+		return MediaTypeUnsupported
+	}
+}
+
+// checkFileSize проверяет размер файла в соответствии с лимитами Telegram
+func (h *TelegramHandler) checkFileSize(mediaInfo MediaInfo) error {
+	// Получаем размер файла через HEAD запрос
+	req, err := http.NewRequest("HEAD", mediaInfo.URL, nil)
+	if err != nil {
+		return fmt.Errorf("failed to create HEAD request: %w", err)
+	}
+
+	resp, err := h.httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to get file size for '%s': %w", mediaInfo.URL, err)
+	}
+	defer resp.Body.Close()
+
+	contentLength := resp.Header.Get("Content-Length")
+	if contentLength == "" {
+		h.logger.Warn().
+			Str("url", mediaInfo.URL).
+			Msg("Could not determine file size, proceeding anyway")
+		return nil
+	}
+
+	var fileSize int64
+	fmt.Sscanf(contentLength, "%d", &fileSize)
+
+	// Проверяем лимиты в зависимости от типа медиа
+	switch mediaInfo.Type {
+	case MediaTypePhoto:
+		if fileSize > MaxPhotoSize {
+			return fmt.Errorf("photo size %d bytes exceeds limit %d bytes", fileSize, MaxPhotoSize)
+		}
+	case MediaTypeVideo:
+		if fileSize > MaxVideoSize {
+			return fmt.Errorf("video size %d bytes exceeds limit %d bytes", fileSize, MaxVideoSize)
+		}
+	case MediaTypeDocument:
+		if fileSize > MaxFileSize {
+			return fmt.Errorf("document size %d bytes exceeds limit %d bytes", fileSize, MaxFileSize)
+		}
+	}
+
+	return nil
+}
+
+// sendSingleMedia отправляет одно медиа с текстом
+func (h *TelegramHandler) sendSingleMedia(ctx context.Context, userID int64, text string, mediaInfo MediaInfo) error {
+	h.logger.Debug().
+		Int64("user_id", userID).
+		Str("media_type", string(mediaInfo.Type)).
+		Str("url", mediaInfo.URL).
+		Msg("Sending single media")
+
+	var err error
+	for attempt := 1; attempt <= MaxRetries; attempt++ {
+		switch mediaInfo.Type {
+		case MediaTypePhoto:
+			err = h.sendPhoto(ctx, userID, text, mediaInfo)
+		case MediaTypeVideo:
+			err = h.sendVideo(ctx, userID, text, mediaInfo)
+		case MediaTypeDocument:
+			err = h.sendDocument(ctx, userID, text, mediaInfo)
+		default:
+			return fmt.Errorf("unsupported media type: %s", mediaInfo.Type)
+		}
+
+		if err == nil {
+			break
+		}
+
+		h.logger.Warn().
+			Int64("user_id", userID).
+			Int("attempt", attempt).
+			Err(err).
+			Msg("Failed to send media, retrying")
+
+		if attempt < MaxRetries {
+			time.Sleep(RetryDelay * time.Duration(attempt))
+		}
+	}
+
+	if err != nil {
+		h.logMediaSend(userID, 1, false, err)
+		return fmt.Errorf("failed to send media after %d attempts: %w", MaxRetries, err)
+	}
+
+	h.logMediaSend(userID, 1, true, nil)
+	return nil
+}
+
+// sendPhoto отправляет фото
+func (h *TelegramHandler) sendPhoto(ctx context.Context, userID int64, text string, mediaInfo MediaInfo) error {
+	msgCtx, cancel := context.WithTimeout(ctx, RequestTimeout)
+	defer cancel()
+
+	_, err := h.bot.SendPhoto(msgCtx, &tgbot.SendPhotoParams{
+		ChatID:    userID,
+		Photo:     &models.InputFileString{Data: mediaInfo.URL},
+		Caption:   text,
+		ParseMode: models.ParseModeHTML,
+	})
+
+	return err
+}
+
+// sendVideo отправляет видео
+func (h *TelegramHandler) sendVideo(ctx context.Context, userID int64, text string, mediaInfo MediaInfo) error {
+	msgCtx, cancel := context.WithTimeout(ctx, RequestTimeout)
+	defer cancel()
+
+	_, err := h.bot.SendVideo(msgCtx, &tgbot.SendVideoParams{
+		ChatID:    userID,
+		Video:     &models.InputFileString{Data: mediaInfo.URL},
+		Caption:   text,
+		ParseMode: models.ParseModeHTML,
+	})
+
+	return err
+}
+
+// sendDocument отправляет документ
+func (h *TelegramHandler) sendDocument(ctx context.Context, userID int64, text string, mediaInfo MediaInfo) error {
+	msgCtx, cancel := context.WithTimeout(ctx, RequestTimeout)
+	defer cancel()
+
+	_, err := h.bot.SendDocument(msgCtx, &tgbot.SendDocumentParams{
+		ChatID:    userID,
+		Document:  &models.InputFileString{Data: mediaInfo.URL},
+		Caption:   text,
+		ParseMode: models.ParseModeHTML,
+	})
+
+	return err
+}
+
+// sendMediaGroup отправляет группу медиа (2-10 файлов)
+func (h *TelegramHandler) sendMediaGroup(ctx context.Context, userID int64, text string, mediaInfos []MediaInfo) error {
+	h.logger.Debug().
+		Int64("user_id", userID).
+		Int("media_count", len(mediaInfos)).
+		Msg("Sending media group")
+
+	// Для версии библиотеки, где InputMedia не поддерживается,
+	// отправляем медиа по отдельности с задержкой
+	if len(mediaInfos) == 1 {
+		return h.sendSingleMedia(ctx, userID, text, mediaInfos[0])
+	}
+
+	// Отправляем первое медиа с текстом
+	if err := h.sendSingleMedia(ctx, userID, text, mediaInfos[0]); err != nil {
+		return fmt.Errorf("failed to send first media: %w", err)
+	}
+
+	// Отправляем остальные медиа без текста
+	for i := 1; i < len(mediaInfos); i++ {
+		if err := h.sendSingleMedia(ctx, userID, "", mediaInfos[i]); err != nil {
+			h.logger.Error().
+				Int64("user_id", userID).
+				Int("media_index", i).
+				Err(err).
+				Msg("Failed to send media in group")
+			// Продолжаем отправлять остальные медиа, даже если одно не удалось
+		}
+
+		// Задержка между отправками
+		if i < len(mediaInfos)-1 {
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(MessageSplitTimeout):
+			}
+		}
+	}
+
+	h.logMediaSend(userID, len(mediaInfos), true, nil)
+	return nil
+}
+
+// sendMultipleMediaGroups отправляет несколько групп медиа (более 10 файлов)
+func (h *TelegramHandler) sendMultipleMediaGroups(ctx context.Context, userID int64, text string, mediaInfos []MediaInfo) error {
+	h.logger.Info().
+		Int64("user_id", userID).
+		Int("total_media", len(mediaInfos)).
+		Msg("Sending multiple media groups")
+
+	// Разбиваем на группы по MaxMediaGroupSize
+	var groups [][]MediaInfo
+	for i := 0; i < len(mediaInfos); i += MaxMediaGroupSize {
+		end := i + MaxMediaGroupSize
+		if end > len(mediaInfos) {
+			end = len(mediaInfos)
+		}
+		groups = append(groups, mediaInfos[i:end])
+	}
+
+	totalGroups := len(groups)
+	successCount := 0
+
+	// Отправляем первую группу с текстом
+	if err := h.sendMediaGroup(ctx, userID, text, groups[0]); err != nil {
+		h.logger.Error().
+			Int64("user_id", userID).
+			Int("group", 1).
+			Err(err).
+			Msg("Failed to send first media group")
+	} else {
+		successCount++
+	}
+
+	// Отправляем остальные группы без текста (или с индикатором прогресса)
+	for i := 1; i < totalGroups; i++ {
+		groupText := ""
+		if totalGroups > 1 {
+			groupText = fmt.Sprintf("<i>(Медиа %d/%d)</i>", i+1, totalGroups)
+		}
+
+		if err := h.sendMediaGroup(ctx, userID, groupText, groups[i]); err != nil {
+			h.logger.Error().
+				Int64("user_id", userID).
+				Int("group", i+1).
+				Err(err).
+				Msg("Failed to send media group")
+		} else {
+			successCount++
+		}
+
+		// Задержка между группами
+		if i < totalGroups-1 {
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(MessageSplitTimeout):
+			}
+		}
+	}
+
+	h.logger.Info().
+		Int64("user_id", userID).
+		Int("success_groups", successCount).
+		Int("total_groups", totalGroups).
+		Msg("Finished sending multiple media groups")
+
+	if successCount == 0 {
+		return fmt.Errorf("failed to send all media groups")
+	}
+
+	if successCount < totalGroups {
+		return fmt.Errorf("sent only %d out of %d media groups", successCount, totalGroups)
+	}
+
+	return nil
+}
+
+// logMediaSend логирует результат отправки медиа
+func (h *TelegramHandler) logMediaSend(userID int64, mediaCount int, success bool, err error) {
+	logEvent := h.logger.Info()
+	if !success {
+		logEvent = h.logger.Error()
+	}
+
+	logEvent.
+		Int64("user_id", userID).
+		Int("media_count", mediaCount).
+		Bool("success", success)
+
+	if err != nil {
+		logEvent.Err(err)
+	}
+
+	logEvent.Msg("Media send attempt completed")
+}
+
+// handleMediaSendError обрабатывает ошибки отправки медиа
+func (h *TelegramHandler) handleMediaSendError(userID int64, mediaCount int, err error) error {
+	errorMsg := err.Error()
+
+	switch {
+	case strings.Contains(errorMsg, "wrong file identifier") || strings.Contains(errorMsg, "failed to get HTTP URL content"):
+		h.logger.Warn().
+			Int64("user_id", userID).
+			Int("media_count", mediaCount).
+			Msg("Invalid media URL or file not accessible")
+		return fmt.Errorf("invalid media URL or file not accessible")
+
+	case strings.Contains(errorMsg, "file is too big"):
+		h.logger.Warn().
+			Int64("user_id", userID).
+			Int("media_count", mediaCount).
+			Msg("File size exceeds Telegram limits")
+		return fmt.Errorf("file size exceeds Telegram limits")
+
+	case strings.Contains(errorMsg, "wrong type of the web page content"):
+		h.logger.Warn().
+			Int64("user_id", userID).
+			Int("media_count", mediaCount).
+			Msg("Unsupported media type")
+		return fmt.Errorf("unsupported media type")
+
+	case strings.Contains(errorMsg, "Too Many Requests"):
+		h.logger.Warn().
+			Int64("user_id", userID).
+			Int("media_count", mediaCount).
+			Msg("Rate limit exceeded for media sending")
+		return fmt.Errorf("rate limit exceeded, please try again later")
+
+	case strings.Contains(errorMsg, "network error"), strings.Contains(errorMsg, "timeout"):
+		h.logger.Warn().
+			Int64("user_id", userID).
+			Int("media_count", mediaCount).
+			Msg("Network error while sending media")
+		return fmt.Errorf("network error, please try again")
+
+	default:
+		h.logger.Error().
+			Int64("user_id", userID).
+			Int("media_count", mediaCount).
+			Err(err).
+			Msg("Unknown error while sending media")
+		return fmt.Errorf("failed to send media: %w", err)
+	}
+}
 
 // registerHandlers регистрирует обработчики команд
 func (h *TelegramHandler) registerHandlers() error {
