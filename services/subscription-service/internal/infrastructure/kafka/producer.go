@@ -1,6 +1,9 @@
 package kafka
 
 import (
+	"context"
+	"encoding/json"
+
 	"github.com/IBM/sarama"
 	"github.com/rs/zerolog"
 )
@@ -37,4 +40,65 @@ func (p *KafkaProducer) Close() error {
 		return p.producer.Close()
 	}
 	return nil
+}
+
+func (p *KafkaProducer) NotifyAccountService(ctx context.Context, event *SubscriptionEvent) error {
+	topic := getTopicByEventType(event.Type)
+
+	bytes, err := json.Marshal(event)
+	if err != nil {
+		p.logger.Error().
+			Err(err).
+			Str("event_type", event.Type).
+			Msg("failed to marshal subscription event")
+		return err
+	}
+
+	key := sarama.StringEncoder(event.UserID)
+
+	msg := &sarama.ProducerMessage{
+		Topic: topic,
+		Key:   key,
+		Value: sarama.ByteEncoder(bytes),
+	}
+
+	partition, offset, err := p.producer.SendMessage(msg)
+	if err != nil {
+		p.logger.Error().
+			Err(err).
+			Str("topic", topic).
+			Str("user_id", event.UserID).
+			Msg("failed to send subscription event to kafka")
+		return err
+	}
+
+	p.logger.Info().
+		Str("topic", topic).
+		Int32("partition", partition).
+		Int64("offset", offset).
+		Str("user_id", event.UserID).
+		Msg("subscription event sent to kafka")
+
+	return nil
+}
+
+func getTopicByEventType(eventType string) string {
+	switch eventType {
+	case "subscription_created":
+		return "subscription.created"
+	case "subscription_updated":
+		return "subscription.updated"
+	case "subscription_cancelled":
+		return "subscription.cancelled"
+	default:
+		return "subscription.unknown"
+	}
+}
+
+type SubscriptionEvent struct {
+	Type        string `json:"type"`
+	UserID      string `json:"user_id"`
+	ChannelID   string `json:"channel_id"`
+	ChannelName string `json:"channel_name"`
+	Active      bool   `json:"active"`
 }
