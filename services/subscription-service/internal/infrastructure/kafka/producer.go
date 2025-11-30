@@ -36,9 +36,18 @@ func NewKafkaProducer(brokers []string, logger zerolog.Logger) (*KafkaProducer, 
 }
 
 func (p *KafkaProducer) Close() error {
-	if p.producer != nil {
-		return p.producer.Close()
+	if p.producer == nil {
+		p.logger.Info().Msg("Kafka producer already closed or not initialized")
+		return nil
 	}
+
+	err := p.producer.Close()
+	if err != nil {
+		p.logger.Error().Err(err).Msg("failed to close Kafka producer")
+		return err
+	}
+
+	p.logger.Info().Msg("Kafka producer successfully closed")
 	return nil
 }
 
