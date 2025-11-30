@@ -3,6 +3,9 @@ package kafka
 import (
 	"context"
 	"encoding/json"
+	"log"
+	"os"
+	"time"
 
 	"github.com/IBM/sarama"
 	"github.com/rs/zerolog"
@@ -14,12 +17,15 @@ type KafkaProducer struct {
 }
 
 func NewKafkaProducer(brokers []string, logger zerolog.Logger) (*KafkaProducer, error) {
-
 	config := sarama.NewConfig()
 	config.Producer.Return.Successes = true
 	config.Producer.Retry.Max = 5
-	config.Producer.Retry.Backoff = 100
+	config.Producer.Retry.Backoff = 500 * time.Millisecond
+	config.Producer.Timeout = 10 * time.Second
 	config.Producer.RequiredAcks = sarama.WaitForAll
+
+	// Логирование Sarama в stdout (для отладки retries)
+	sarama.Logger = log.New(os.Stdout, "[Sarama] ", log.LstdFlags)
 
 	producer, err := sarama.NewSyncProducer(brokers, config)
 	if err != nil {
@@ -27,7 +33,7 @@ func NewKafkaProducer(brokers []string, logger zerolog.Logger) (*KafkaProducer, 
 		return nil, err
 	}
 
-	logger.Info().Msg("Kafka SyncProducer successfully initialized")
+	logger.Info().Msg("Kafka SyncProducer successfully initialized with retry/backoff config")
 
 	return &KafkaProducer{
 		producer: producer,
