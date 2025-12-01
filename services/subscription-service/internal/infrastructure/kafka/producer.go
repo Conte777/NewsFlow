@@ -12,8 +12,10 @@ import (
 )
 
 type KafkaProducer struct {
-	producer sarama.SyncProducer
-	logger   zerolog.Logger
+	producer     sarama.SyncProducer
+	logger       zerolog.Logger
+	successCount uint64
+	errorCount   uint64
 }
 
 func NewKafkaProducer(brokers []string, logger zerolog.Logger) (*KafkaProducer, error) {
@@ -24,7 +26,6 @@ func NewKafkaProducer(brokers []string, logger zerolog.Logger) (*KafkaProducer, 
 	config.Producer.Timeout = 10 * time.Second
 	config.Producer.RequiredAcks = sarama.WaitForAll
 
-	// Логирование Sarama в stdout (для отладки retries)
 	sarama.Logger = log.New(os.Stdout, "[Sarama] ", log.LstdFlags)
 
 	producer, err := sarama.NewSyncProducer(brokers, config)
@@ -62,9 +63,12 @@ func (p *KafkaProducer) NotifyAccountService(ctx context.Context, event *Subscri
 
 	bytes, err := json.Marshal(event)
 	if err != nil {
+		p.errorCount++
 		p.logger.Error().
 			Err(err).
 			Str("event_type", event.Type).
+			Uint64("success_count", p.successCount).
+			Uint64("error_count", p.errorCount).
 			Msg("failed to marshal subscription event")
 		return err
 	}
@@ -77,21 +81,33 @@ func (p *KafkaProducer) NotifyAccountService(ctx context.Context, event *Subscri
 		Value: sarama.ByteEncoder(bytes),
 	}
 
+	start := time.Now()
 	partition, offset, err := p.producer.SendMessage(msg)
+	latency := time.Since(start)
+
 	if err != nil {
+		p.errorCount++
 		p.logger.Error().
 			Err(err).
 			Str("topic", topic).
 			Str("user_id", event.UserID).
+			Dur("latency", latency).
+			Uint64("success_count", p.successCount).
+			Uint64("error_count", p.errorCount).
 			Msg("failed to send subscription event to kafka")
 		return err
 	}
 
+	p.successCount++
+
 	p.logger.Info().
 		Str("topic", topic).
+		Str("user_id", event.UserID).
 		Int32("partition", partition).
 		Int64("offset", offset).
-		Str("user_id", event.UserID).
+		Dur("latency", latency).
+		Uint64("success_count", p.successCount).
+		Uint64("error_count", p.errorCount).
 		Msg("subscription event sent to kafka")
 
 	return nil
