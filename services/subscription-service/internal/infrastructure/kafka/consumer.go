@@ -49,6 +49,23 @@ func NewKafkaConsumer(
 	}, nil
 }
 
+func (c *KafkaConsumer) Close() error {
+	if c.consumerGroup == nil {
+		c.logger.Info().Msg("Kafka consumer group is already closed or not initialized")
+		return nil
+	}
+
+	c.logger.Info().Msg("closing Kafka consumer group...")
+
+	if err := c.consumerGroup.Close(); err != nil {
+		c.logger.Error().Err(err).Msg("failed to close Kafka consumer group")
+		return err
+	}
+
+	c.logger.Info().Msg("Kafka consumer group successfully closed")
+	return nil
+}
+
 func (c *KafkaConsumer) Setup(session sarama.ConsumerGroupSession) error {
 	c.logger.Info().
 		Str("member_id", session.MemberID()).
