@@ -1,6 +1,7 @@
 package kafka
 
 import (
+	"context"
 	"encoding/json"
 
 	"github.com/IBM/sarama"
@@ -109,4 +110,23 @@ func (c *KafkaConsumer) ConsumeClaim(session sarama.ConsumerGroupSession, claim 
 		Msg("stopped message consumption from partition")
 
 	return nil
+}
+
+func (c *KafkaConsumer) Start(ctx context.Context) {
+	go func() {
+		for {
+			if ctx.Err() != nil {
+				c.logger.Info().Msg("consumer context canceled, stopping consumer group")
+				return
+			}
+
+			if err := c.consumerGroup.Consume(ctx, c.topics, c); err != nil {
+				c.logger.Error().Err(err).Msg("error from consumer group")
+			}
+		}
+	}()
+
+	c.logger.Info().
+		Strs("topics", c.topics).
+		Msg("Kafka consumer group started")
 }
