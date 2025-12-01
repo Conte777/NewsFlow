@@ -80,6 +80,8 @@ func (c *KafkaConsumer) Cleanup(session sarama.ConsumerGroupSession) error {
 	return nil
 }
 
+const maxRetries = 3
+
 func (c *KafkaConsumer) ConsumeClaim(session sarama.ConsumerGroupSession, claim sarama.ConsumerGroupClaim) error {
 
 	c.logger.Info().
@@ -104,12 +106,28 @@ func (c *KafkaConsumer) ConsumeClaim(session sarama.ConsumerGroupSession, claim 
 			continue
 		}
 
-		if err := c.handler.Handle(&event); err != nil {
+		var err error
+		for attempt := 1; attempt <= maxRetries; attempt++ {
+			err = c.handler.Handle(&event)
+			if err == nil {
+				break
+			}
+
+			c.logger.Error().
+				Err(err).
+				Int("attempt", attempt).
+				Int("max_attempts", maxRetries).
+				Str("topic", msg.Topic).
+				Str("user_id", event.UserID).
+				Msg("handler failed to process event, retrying")
+		}
+
+		if err != nil {
 			c.logger.Error().
 				Err(err).
 				Str("topic", msg.Topic).
 				Str("user_id", event.UserID).
-				Msg("handler failed to process subscription event")
+				Msg("all retry attempts failed, message will be reprocessed later")
 			continue
 		}
 
