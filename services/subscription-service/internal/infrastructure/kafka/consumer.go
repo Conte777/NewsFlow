@@ -1,14 +1,14 @@
 package kafka
 
 import (
-	"context"
+	"encoding/json"
 
 	"github.com/IBM/sarama"
 	"github.com/rs/zerolog"
 )
 
 type ConsumerEventHandler interface {
-	HandleMessage(ctx context.Context, msg *sarama.ConsumerMessage) error
+	Handle(event *SubscriptionEvent) error
 }
 
 type KafkaConsumer struct {
@@ -65,23 +65,48 @@ func (c *KafkaConsumer) Cleanup(session sarama.ConsumerGroupSession) error {
 func (c *KafkaConsumer) ConsumeClaim(session sarama.ConsumerGroupSession, claim sarama.ConsumerGroupClaim) error {
 
 	c.logger.Info().
+		Str("topic", claim.Topic()).
 		Int32("partition", claim.Partition()).
-		Msg("starting message consumption for partition")
+		Msg("starting message consumption from partition")
 
 	for msg := range claim.Messages() {
-		err := c.handler.HandleMessage(session.Context(), msg)
-		if err != nil {
+		c.logger.Debug().
+			Str("topic", msg.Topic).
+			Int32("partition", msg.Partition).
+			Int64("offset", msg.Offset).
+			Msg("received message from Kafka")
+
+		var event SubscriptionEvent
+		if err := json.Unmarshal(msg.Value, &event); err != nil {
 			c.logger.Error().
 				Err(err).
 				Str("topic", msg.Topic).
-				Int32("partition", msg.Partition).
-				Int64("offset", msg.Offset).
-				Msg("failed to process message")
+				Str("key", string(msg.Key)).
+				Msg("failed to unmarshal subscription event")
+			continue
+		}
+
+		if err := c.handler.Handle(&event); err != nil {
+			c.logger.Error().
+				Err(err).
+				Str("topic", msg.Topic).
+				Str("user_id", event.UserID).
+				Msg("handler failed to process subscription event")
 			continue
 		}
 
 		session.MarkMessage(msg, "")
+		c.logger.Info().
+			Str("topic", msg.Topic).
+			Str("user_id", event.UserID).
+			Int64("offset", msg.Offset).
+			Msg("subscription event successfully processed")
 	}
+
+	c.logger.Info().
+		Str("topic", claim.Topic()).
+		Int32("partition", claim.Partition()).
+		Msg("stopped message consumption from partition")
 
 	return nil
 }
