@@ -7,10 +7,10 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/yourusername/telegram-news-feed/account-service/config"
-	"github.com/yourusername/telegram-news-feed/account-service/internal/infrastructure/logger"
-	"github.com/yourusername/telegram-news-feed/account-service/internal/repository/memory"
-	"github.com/yourusername/telegram-news-feed/account-service/internal/usecase"
+	"github.com/YarosTrubechkoi/telegram-news-feed/account-service/config"
+	"github.com/YarosTrubechkoi/telegram-news-feed/account-service/internal/infrastructure/logger"
+	"github.com/YarosTrubechkoi/telegram-news-feed/account-service/internal/repository/memory"
+	"github.com/YarosTrubechkoi/telegram-news-feed/account-service/internal/usecase"
 )
 
 func main() {

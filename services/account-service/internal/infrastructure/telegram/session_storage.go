@@ -2,7 +2,7 @@ package telegram
 
 import (
 	"context"
-	"encoding/json"
+	"crypto/sha256"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -24,8 +24,9 @@ func NewFileSessionStorage(sessionDir, phoneNumber string) (*FileSessionStorage,
 		return nil, fmt.Errorf("failed to create session directory: %w", err)
 	}
 
-	// Create a unique filename based on phone number
-	fileName := fmt.Sprintf("session_%s.json", phoneNumber)
+	// Hash phone number for privacy - use first 64 bits of SHA256
+	hash := sha256.Sum256([]byte(phoneNumber))
+	fileName := fmt.Sprintf("session_%x.json", hash[:8])
 	filePath := filepath.Join(sessionDir, fileName)
 
 	return &FileSessionStorage{
@@ -67,14 +68,6 @@ func (s *FileSessionStorage) StoreSession(ctx context.Context, data []byte) erro
 	return nil
 }
 
-// sessionData represents the structure of session data for JSON serialization
-type sessionData struct {
-	DC        int    `json:"dc"`
-	AuthKey   []byte `json:"auth_key"`
-	AuthKeyID []byte `json:"auth_key_id"`
-	Salt      int64  `json:"salt"`
-}
-
 // GetFilePath returns the path to the session file
 func (s *FileSessionStorage) GetFilePath() string {
 	return s.filePath
@@ -96,40 +89,6 @@ func (s *FileSessionStorage) DeleteSession() error {
 func (s *FileSessionStorage) SessionExists() bool {
 	_, err := os.Stat(s.filePath)
 	return err == nil
-}
-
-// ExportSession exports session data as JSON for backup or transfer
-func (s *FileSessionStorage) ExportSession(ctx context.Context) (string, error) {
-	data, err := s.LoadSession(ctx)
-	if err != nil {
-		return "", fmt.Errorf("failed to load session: %w", err)
-	}
-
-	// Convert to JSON string
-	jsonData, err := json.Marshal(map[string]interface{}{
-		"phone":   s.phoneNumber,
-		"session": data,
-	})
-	if err != nil {
-		return "", fmt.Errorf("failed to marshal session data: %w", err)
-	}
-
-	return string(jsonData), nil
-}
-
-// ImportSession imports session data from JSON
-func (s *FileSessionStorage) ImportSession(ctx context.Context, jsonData string) error {
-	var sessionMap map[string]interface{}
-	if err := json.Unmarshal([]byte(jsonData), &sessionMap); err != nil {
-		return fmt.Errorf("failed to unmarshal session data: %w", err)
-	}
-
-	sessionBytes, ok := sessionMap["session"].([]byte)
-	if !ok {
-		return fmt.Errorf("invalid session data format")
-	}
-
-	return s.StoreSession(ctx, sessionBytes)
 }
 
 // Ensure FileSessionStorage implements session.Storage interface

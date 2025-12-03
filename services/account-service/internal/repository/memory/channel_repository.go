@@ -5,7 +5,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/yourusername/telegram-news-feed/account-service/internal/domain"
+	"github.com/YarosTrubechkoi/telegram-news-feed/account-service/internal/domain"
 )
 
 // channelRepository implements domain.ChannelRepository using in-memory storage

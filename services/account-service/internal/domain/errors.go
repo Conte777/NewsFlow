@@ -26,4 +26,19 @@ var (
 
 	// ErrNewsCollectionFailed is returned when news collection fails
 	ErrNewsCollectionFailed = errors.New("news collection failed")
+
+	// ErrAuthenticationFailed is returned when authentication fails
+	ErrAuthenticationFailed = errors.New("authentication failed")
+
+	// ErrConnectionFailed is returned when connection to Telegram fails
+	ErrConnectionFailed = errors.New("connection failed")
+
+	// ErrNotConnected is returned when operation requires connection
+	ErrNotConnected = errors.New("not connected to Telegram")
+
+	// ErrSessionRevoked is returned when session is revoked
+	ErrSessionRevoked = errors.New("session has been revoked")
+
+	// ErrRateLimitExceeded is returned when rate limit is exceeded
+	ErrRateLimitExceeded = errors.New("rate limit exceeded")
 )
