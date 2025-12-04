@@ -23,7 +23,8 @@ type TelegramClient interface {
 	Connect(ctx context.Context) error
 
 	// Disconnect disconnects from Telegram
-	Disconnect() error
+	// The context controls the timeout for graceful shutdown
+	Disconnect(ctx context.Context) error
 
 	// JoinChannel joins a Telegram channel
 	JoinChannel(ctx context.Context, channelID string) error

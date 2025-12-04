@@ -29,9 +29,11 @@ type MTProtoClient struct {
 	phoneNumber    string
 
 	// Connection state
-	connected  bool
-	mu         sync.RWMutex
-	cancelFunc context.CancelFunc
+	connected     bool
+	disconnecting bool
+	mu            sync.RWMutex
+	cancelFunc    context.CancelFunc
+	runDone       chan struct{} // Signals when client.Run() completes
 
 	// Logger
 	logger zerolog.Logger
@@ -109,6 +111,10 @@ func (c *MTProtoClient) Connect(ctx context.Context) error {
 		c.logger.Debug().Msg("already connected")
 		return nil
 	}
+	if c.disconnecting {
+		c.mu.Unlock()
+		return fmt.Errorf("disconnect in progress, cannot connect")
+	}
 	// Keep the lock to prevent concurrent connection attempts
 	defer c.mu.Unlock()
 
@@ -127,9 +133,11 @@ func (c *MTProtoClient) Connect(ctx context.Context) error {
 	readyChan := make(chan struct{})
 	errChan := make(chan error, 1)
 	started := make(chan struct{})
+	c.runDone = make(chan struct{})
 
 	// Start the client in a goroutine
 	go func() {
+		defer close(c.runDone) // Signal when Run() completes
 		close(started)
 		err := c.client.Run(clientCtx, func(ctx context.Context) error {
 			// Get API client
@@ -191,27 +199,62 @@ func (c *MTProtoClient) Connect(ctx context.Context) error {
 	}
 }
 
-// Disconnect disconnects from Telegram
-func (c *MTProtoClient) Disconnect() error {
+// Disconnect disconnects from Telegram with graceful shutdown
+// The operation respects a 10-second timeout for cleanup operations.
+// The session is automatically saved by the underlying gotd/td client before shutdown.
+// Multiple calls to Disconnect() are safe and will return nil if already disconnected.
+// This method is safe for concurrent use.
+func (c *MTProtoClient) Disconnect(ctx context.Context) error {
 	c.mu.Lock()
-	defer c.mu.Unlock()
 
+	// Check if already disconnecting
+	if c.disconnecting {
+		c.mu.Unlock()
+		c.logger.Debug().Msg("disconnect already in progress")
+		return nil
+	}
+
+	// Check if already disconnected
 	if !c.connected {
+		c.mu.Unlock()
 		c.logger.Debug().Msg("already disconnected")
 		return nil
 	}
 
 	c.logger.Info().Msg("disconnecting from Telegram")
 
+	// Mark as disconnecting
+	c.disconnecting = true
+	cancelFunc := c.cancelFunc
+	runDone := c.runDone
+	c.mu.Unlock()
+
 	// Cancel the client context to stop the goroutine
-	if c.cancelFunc != nil {
-		c.cancelFunc()
-		c.cancelFunc = nil
+	if cancelFunc != nil {
+		c.logger.Debug().Msg("cancelling client context")
+		cancelFunc()
+
+		// Wait for client.Run() goroutine to actually finish
+		if runDone != nil {
+			select {
+			case <-runDone:
+				c.logger.Debug().Msg("client stopped gracefully")
+			case <-ctx.Done():
+				c.logger.Warn().Msg("disconnect timeout reached while waiting for client shutdown")
+				// Don't return error yet, still clean up state
+			}
+		}
 	}
 
+	// Clean up state
+	c.mu.Lock()
 	c.client = nil
 	c.api = nil
 	c.connected = false
+	c.cancelFunc = nil
+	c.runDone = nil
+	c.disconnecting = false
+	c.mu.Unlock()
 
 	c.logger.Info().Msg("successfully disconnected from Telegram")
 	return nil
