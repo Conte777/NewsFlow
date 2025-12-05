@@ -41,4 +41,13 @@ var (
 
 	// ErrRateLimitExceeded is returned when rate limit is exceeded
 	ErrRateLimitExceeded = errors.New("rate limit exceeded")
+
+	// ErrChannelPrivate is returned when trying to access a private channel
+	ErrChannelPrivate = errors.New("channel is private")
+
+	// ErrPeerFlood is returned when too many requests are made (anti-spam)
+	ErrPeerFlood = errors.New("peer flood: too many requests, please wait")
+
+	// ErrFloodWait is returned when flood wait is required
+	ErrFloodWait = errors.New("flood wait required")
 )

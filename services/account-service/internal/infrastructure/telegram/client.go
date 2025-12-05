@@ -2,6 +2,7 @@ package telegram
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -9,6 +10,7 @@ import (
 
 	"github.com/gotd/td/telegram"
 	"github.com/gotd/td/tg"
+	"github.com/gotd/td/tgerr"
 	"github.com/rs/zerolog"
 	"golang.org/x/time/rate"
 
@@ -318,9 +320,11 @@ func (c *MTProtoClient) resolveChannel(ctx context.Context, channelID string) (*
 	return nil, fmt.Errorf("resolved peer is not a channel")
 }
 
-// JoinChannel joins a Telegram channel
+// JoinChannel joins a Telegram channel with retry mechanism for FloodWait
+// Supports both @username and numeric channel ID formats
 // The caller should provide a context with timeout to prevent hanging operations.
-// Recommended timeout: 30 seconds for normal operations, longer for slow networks.
+// Recommended timeout: 60 seconds to allow for potential flood wait delays.
+// Returns specific errors: ErrChannelNotFound, ErrChannelPrivate, ErrPeerFlood, ErrFloodWait
 func (c *MTProtoClient) JoinChannel(ctx context.Context, channelID string) error {
 	// Validate channel ID
 	if err := validateChannelID(channelID); err != nil {
@@ -347,15 +351,89 @@ func (c *MTProtoClient) JoinChannel(ctx context.Context, channelID string) error
 		return err
 	}
 
-	// Join the channel
-	_, err = c.api.ChannelsJoinChannel(ctx, inputChannel)
-	if err != nil {
-		c.logger.Error().Err(err).Str("channel_id", channelID).Msg("failed to join channel")
-		return fmt.Errorf("failed to join channel: %w", err)
+	// Join with retry mechanism for FloodWait
+	return c.joinChannelWithRetry(ctx, channelID, inputChannel, 3)
+}
+
+// joinChannelWithRetry attempts to join a channel with retry logic for FloodWait errors
+func (c *MTProtoClient) joinChannelWithRetry(ctx context.Context, channelID string, inputChannel *tg.InputChannel, maxRetries int) error {
+	var lastErr error
+
+	for attempt := 0; attempt < maxRetries; attempt++ {
+		// Join the channel
+		_, err := c.api.ChannelsJoinChannel(ctx, inputChannel)
+		if err == nil {
+			c.logger.Info().Str("channel_id", channelID).Msg("successfully joined channel")
+			return nil
+		}
+
+		lastErr = err
+
+		// Handle specific Telegram errors
+		if tgerr.Is(err, "CHANNEL_PRIVATE") {
+			c.logger.Error().Str("channel_id", channelID).Msg("channel is private")
+			return domain.ErrChannelPrivate
+		}
+
+		if tgerr.Is(err, "CHANNEL_INVALID") || tgerr.Is(err, "USERNAME_INVALID") || tgerr.Is(err, "USERNAME_NOT_OCCUPIED") {
+			c.logger.Error().Str("channel_id", channelID).Msg("channel not found")
+			return domain.ErrChannelNotFound
+		}
+
+		if tgerr.Is(err, "CHANNELS_TOO_MUCH") {
+			c.logger.Error().Msg("joined too many channels")
+			return fmt.Errorf("joined too many channels, cannot join more")
+		}
+
+		if tgerr.Is(err, "USER_BANNED_IN_CHANNEL") {
+			c.logger.Error().Str("channel_id", channelID).Msg("user is banned in this channel")
+			return fmt.Errorf("user is banned in channel")
+		}
+
+		// Handle PEER_FLOOD - anti-spam restriction (non-retryable)
+		if tgerr.Is(err, "PEER_FLOOD") {
+			c.logger.Error().Str("channel_id", channelID).Msg("peer flood detected - too many join requests")
+			return domain.ErrPeerFlood
+		}
+
+		// Handle FloodWait - temporary rate limit (retryable)
+		var floodErr *tgerr.Error
+		if errors.As(err, &floodErr) && floodErr.Code == 420 {
+			waitDuration := time.Duration(floodErr.Argument) * time.Second
+			c.logger.Warn().
+				Str("channel_id", channelID).
+				Int("attempt", attempt+1).
+				Dur("wait_duration", waitDuration).
+				Msg("flood wait detected, waiting before retry")
+
+			// Check if we have time to wait
+			select {
+			case <-time.After(waitDuration):
+				// Continue to next retry
+				continue
+			case <-ctx.Done():
+				return fmt.Errorf("context cancelled during flood wait: %w", ctx.Err())
+			}
+		}
+
+		// For other errors, log and retry
+		c.logger.Warn().
+			Err(err).
+			Str("channel_id", channelID).
+			Int("attempt", attempt+1).
+			Msg("failed to join channel, retrying")
+
+		// Short delay before retry
+		select {
+		case <-time.After(time.Second):
+			continue
+		case <-ctx.Done():
+			return ctx.Err()
+		}
 	}
 
-	c.logger.Info().Str("channel_id", channelID).Msg("successfully joined channel")
-	return nil
+	c.logger.Error().Err(lastErr).Str("channel_id", channelID).Msg("failed to join channel after retries")
+	return fmt.Errorf("failed to join channel after %d attempts: %w", maxRetries, lastErr)
 }
 
 // LeaveChannel leaves a Telegram channel
