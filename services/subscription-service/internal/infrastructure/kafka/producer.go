@@ -7,6 +7,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/Conte777/NewsFlow/services/subscription-service/internal/domain/events"
 	"github.com/IBM/sarama"
 	"github.com/rs/zerolog"
 )
@@ -58,7 +59,7 @@ func (p *KafkaProducer) Close() error {
 	return nil
 }
 
-func (p *KafkaProducer) NotifyAccountService(ctx context.Context, event *SubscriptionEvent) error {
+func (p *KafkaProducer) NotifyAccountService(ctx context.Context, event *events.SubscriptionEvent) error {
 	topic := getTopicByEventType(event.Type)
 
 	bytes, err := json.Marshal(event)
@@ -124,12 +125,4 @@ func getTopicByEventType(eventType string) string {
 	default:
 		return "subscription.unknown"
 	}
-}
-
-type SubscriptionEvent struct {
-	Type        string `json:"type"`
-	UserID      string `json:"user_id"`
-	ChannelID   string `json:"channel_id"`
-	ChannelName string `json:"channel_name"`
-	Active      bool   `json:"active"`
 }
