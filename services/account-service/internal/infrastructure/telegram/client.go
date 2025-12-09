@@ -439,6 +439,7 @@ func (c *MTProtoClient) joinChannelWithRetry(ctx context.Context, channelID stri
 // LeaveChannel leaves a Telegram channel
 // The caller should provide a context with timeout to prevent hanging operations.
 // Recommended timeout: 30 seconds for normal operations, longer for slow networks.
+// Returns specific errors: ErrChannelNotFound, ErrChannelPrivate
 func (c *MTProtoClient) LeaveChannel(ctx context.Context, channelID string) error {
 	// Validate channel ID
 	if err := validateChannelID(channelID); err != nil {
@@ -462,12 +463,34 @@ func (c *MTProtoClient) LeaveChannel(ctx context.Context, channelID string) erro
 	// Resolve the channel username
 	inputChannel, err := c.resolveChannel(ctx, channelID)
 	if err != nil {
+		// Check if resolution failed due to channel not found
+		if tgerr.Is(err, "USERNAME_INVALID") || tgerr.Is(err, "USERNAME_NOT_OCCUPIED") {
+			c.logger.Error().Str("channel_id", channelID).Msg("channel not found during resolution")
+			return domain.ErrChannelNotFound
+		}
 		return err
 	}
 
 	// Leave the channel
 	_, err = c.api.ChannelsLeaveChannel(ctx, inputChannel)
 	if err != nil {
+		// Handle specific Telegram errors
+		if tgerr.Is(err, "CHANNEL_INVALID") || tgerr.Is(err, "CHANNEL_NOT_FOUND") {
+			c.logger.Error().Str("channel_id", channelID).Msg("channel not found")
+			return domain.ErrChannelNotFound
+		}
+
+		if tgerr.Is(err, "CHANNEL_PRIVATE") {
+			c.logger.Error().Str("channel_id", channelID).Msg("channel is private")
+			return domain.ErrChannelPrivate
+		}
+
+		if tgerr.Is(err, "USER_NOT_PARTICIPANT") {
+			c.logger.Warn().Str("channel_id", channelID).Msg("user is not a participant of this channel")
+			// Return success since the end result is the same - user is not in the channel
+			return nil
+		}
+
 		c.logger.Error().Err(err).Str("channel_id", channelID).Msg("failed to leave channel")
 		return fmt.Errorf("failed to leave channel: %w", err)
 	}

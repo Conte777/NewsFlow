@@ -3,7 +3,7 @@ module github.com/YarosTrubechkoi/telegram-news-feed/account-service
 go 1.24.0
 
 require (
-	github.com/gotd/td v0.135.0
+	github.com/gotd/td v0.136.0
 	github.com/joho/godotenv v1.5.1
 	github.com/rs/zerolog v1.34.0
 	golang.org/x/time v0.14.0
