@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 
-	"github.com/yourusername/telegram-news-feed/subscription-service/internal/domain"
+	"github.com/Conte777/NewsFlow/services/subscription-service/internal/domain"
 	"gorm.io/gorm"
 )
 

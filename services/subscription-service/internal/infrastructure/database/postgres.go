@@ -3,8 +3,8 @@ package database
 import (
 	"fmt"
 
-	"github.com/yourusername/telegram-news-feed/subscription-service/config"
-	"github.com/yourusername/telegram-news-feed/subscription-service/internal/domain"
+	"github.com/Conte777/NewsFlow/services/subscription-service/config"
+	"github.com/Conte777/NewsFlow/services/subscription-service/internal/domain"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"

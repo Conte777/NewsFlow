@@ -1,16 +1,16 @@
 package main
 
 import (
-	"context"
+	//"context"
 	"os"
 	"os/signal"
 	"syscall"
 
-	"github.com/yourusername/telegram-news-feed/subscription-service/config"
-	"github.com/yourusername/telegram-news-feed/subscription-service/internal/infrastructure/database"
-	"github.com/yourusername/telegram-news-feed/subscription-service/internal/infrastructure/logger"
-	"github.com/yourusername/telegram-news-feed/subscription-service/internal/repository/postgres"
-	"github.com/yourusername/telegram-news-feed/subscription-service/internal/usecase"
+	"github.com/Conte777/NewsFlow/services/subscription-service/config"
+	"github.com/Conte777/NewsFlow/services/subscription-service/internal/infrastructure/database"
+	"github.com/Conte777/NewsFlow/services/subscription-service/internal/infrastructure/logger"
+	"github.com/Conte777/NewsFlow/services/subscription-service/internal/repository/postgres"
+	"github.com/Conte777/NewsFlow/services/subscription-service/internal/usecase"
 )
 
 func main() {
@@ -36,8 +36,8 @@ func main() {
 	log.Info().Msg("Database connected successfully")
 
 	// Create context with cancellation
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	//ctx, cancel := context.WithCancel(context.Background()) //временно отключить ctx до появления Kafka/UC
+	//defer cancel()
 
 	// Initialize repository
 	subscriptionRepo := postgres.NewSubscriptionRepository(db)
