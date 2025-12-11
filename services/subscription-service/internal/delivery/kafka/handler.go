@@ -80,3 +80,45 @@ func (h *SubscriptionEventHandler) HandleSubscriptionCreated(
 
 	return nil
 }
+
+func (h *SubscriptionEventHandler) HandleSubscriptionDeleted(
+	ctx context.Context,
+	event *events.SubscriptionEvent,
+) error {
+	// --- Валидация обязательных полей ---
+	if event.UserID == "" {
+		h.logger.Error().Msg("subscription deleted event missing UserID")
+		return errors.New("missing UserID")
+	}
+	if event.ChannelID == "" {
+		h.logger.Error().Msg("subscription deleted event missing ChannelID")
+		return errors.New("missing ChannelID")
+	}
+
+	userID, err := strconv.ParseInt(event.UserID, 10, 64)
+	if err != nil {
+		h.logger.Error().
+			Err(err).
+			Str("user_id", event.UserID).
+			Msg("invalid UserID, cannot convert to int64")
+		return err
+	}
+
+	// --- Основная логика ---
+	if err := h.usecase.DeleteSubscription(ctx, userID, event.ChannelID); err != nil {
+		h.logger.Error().
+			Err(err).
+			Str("user_id", event.UserID).
+			Str("channel_id", event.ChannelID).
+			Msg("failed to delete subscription")
+		return err
+	}
+
+	// --- Успех ---
+	h.logger.Info().
+		Str("user_id", event.UserID).
+		Str("channel_id", event.ChannelID).
+		Msg("subscription successfully deleted")
+
+	return nil
+}
