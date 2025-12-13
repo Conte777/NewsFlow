@@ -282,6 +282,11 @@ func (c *MTProtoClient) IsConnected() bool {
 	return c.connected
 }
 
+// GetAccountID returns the phone number as unique account identifier
+func (c *MTProtoClient) GetAccountID() string {
+	return c.phoneNumber
+}
+
 // validateChannelID validates channel ID format
 func validateChannelID(channelID string) error {
 	if channelID == "" {

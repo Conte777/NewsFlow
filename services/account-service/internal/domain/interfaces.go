@@ -40,6 +40,9 @@ type TelegramClient interface {
 
 	// IsConnected checks if client is connected
 	IsConnected() bool
+
+	// GetAccountID returns unique identifier for this account (e.g., phone number)
+	GetAccountID() string
 }
 
 // AccountManager manages multiple Telegram accounts
