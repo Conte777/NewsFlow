@@ -70,12 +70,14 @@ func (u *accountUseCase) SubscribeToChannel(ctx context.Context, channelID, chan
 
 	// Get channel name if not provided
 	if channelName == "" {
-		channelName, err = client.GetChannelInfo(ctx, channelID)
+		info, err := client.GetChannelInfo(ctx, channelID)
 		if err != nil {
 			u.logger.Warn().Err(err).
 				Str("channel_id", channelID).
-				Msg("Failed to get channel name, using channel ID")
+				Msg("Failed to get channel info, using channel ID")
 			channelName = channelID
+		} else {
+			channelName = info.Title
 		}
 	}
 

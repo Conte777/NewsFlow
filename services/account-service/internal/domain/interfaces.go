@@ -35,8 +35,8 @@ type TelegramClient interface {
 	// GetChannelMessages retrieves recent messages from a channel with pagination support
 	GetChannelMessages(ctx context.Context, channelID string, limit, offset int) ([]NewsItem, error)
 
-	// GetChannelInfo retrieves information about a channel
-	GetChannelInfo(ctx context.Context, channelID string) (string, error) // Returns channel name
+	// GetChannelInfo retrieves detailed information about a channel
+	GetChannelInfo(ctx context.Context, channelID string) (*ChannelInfo, error)
 
 	// IsConnected checks if client is connected
 	IsConnected() bool

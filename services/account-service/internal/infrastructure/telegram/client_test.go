@@ -708,6 +708,215 @@ func createTestLogger() zerolog.Logger {
 	return zerolog.New(nil).Level(zerolog.Disabled)
 }
 
+// TestGetChannelInfo_NotConnected tests error handling when client is not connected
+func TestGetChannelInfo_NotConnected(t *testing.T) {
+	client := &MTProtoClient{
+		connected: false,
+		logger:    createTestLogger(),
+	}
+
+	ctx := context.Background()
+	_, err := client.GetChannelInfo(ctx, "@testchannel")
+
+	if err != domain.ErrNotConnected {
+		t.Errorf("Expected ErrNotConnected, got: %v", err)
+	}
+}
+
+// TestGetChannelInfo_InvalidChannelID tests validation of channel ID
+func TestGetChannelInfo_InvalidChannelID(t *testing.T) {
+	client := &MTProtoClient{
+		connected: true,
+		logger:    createTestLogger(),
+	}
+
+	tests := []struct {
+		name      string
+		channelID string
+		wantErr   error
+	}{
+		{
+			name:      "empty channel ID",
+			channelID: "",
+			wantErr:   domain.ErrInvalidChannelID,
+		},
+		{
+			name:      "invalid format",
+			channelID: "invalid_channel",
+			wantErr:   domain.ErrInvalidChannelID,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := context.Background()
+			_, err := client.GetChannelInfo(ctx, tt.channelID)
+
+			if err != tt.wantErr {
+				t.Errorf("Expected error %v, got: %v", tt.wantErr, err)
+			}
+		})
+	}
+}
+
+// Integration test for getting channel info
+// To use this, you need to:
+// 1. Create a .env file or set environment variables
+// 2. Uncomment and run manually
+/*
+func TestGetChannelInfo_KnownChannel(t *testing.T) {
+	// Load credentials from environment
+	apiID := getEnvAsInt("TG_API_ID")
+	apiHash := getEnv("TG_API_HASH")
+	phone := getEnv("TG_PHONE")
+	testChannel := getEnv("TG_TEST_CHANNEL") // e.g., "@telegram"
+
+	if apiID == 0 || apiHash == "" || phone == "" || testChannel == "" {
+		t.Skip("Skipping integration test - missing credentials")
+	}
+
+	// Create logger
+	logger := zerolog.New(os.Stdout).With().Timestamp().Logger()
+
+	// Create client
+	client, err := NewMTProtoClient(MTProtoClientConfig{
+		APIID:       apiID,
+		APIHash:     apiHash,
+		PhoneNumber: phone,
+		SessionDir:  "./test_sessions",
+		Logger:      logger,
+	})
+	if err != nil {
+		t.Fatalf("Failed to create client: %v", err)
+	}
+
+	// Connect with timeout
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+
+	err = client.Connect(ctx)
+	if err != nil {
+		t.Fatalf("Failed to connect: %v", err)
+	}
+	defer client.Disconnect(context.Background())
+
+	// Test: Get channel info
+	t.Run("get known channel info", func(t *testing.T) {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+
+		info, err := client.GetChannelInfo(ctx, testChannel)
+		if err != nil {
+			t.Fatalf("Failed to get channel info: %v", err)
+		}
+
+		// Verify required fields
+		if info.ID == "" {
+			t.Error("Expected channel ID to be non-empty")
+		}
+		if info.Title == "" {
+			t.Error("Expected channel title to be non-empty")
+		}
+		if info.Username == "" {
+			t.Log("Warning: Channel username is empty (might be expected for some channels)")
+		}
+
+		// Log channel information
+		t.Logf("Channel Info:")
+		t.Logf("  ID: %s", info.ID)
+		t.Logf("  Username: %s", info.Username)
+		t.Logf("  Title: %s", info.Title)
+		t.Logf("  About: %s", truncateString(info.About, 100))
+		t.Logf("  Participants: %d", info.ParticipantsCount)
+		t.Logf("  Verified: %v", info.IsVerified)
+		t.Logf("  Restricted: %v", info.IsRestricted)
+		t.Logf("  Created: %v", info.CreatedAt)
+
+		// Verify participant count is reasonable
+		if info.ParticipantsCount < 0 {
+			t.Errorf("Participant count should not be negative: %d", info.ParticipantsCount)
+		}
+
+		// Verify created date is in the past
+		if info.CreatedAt.After(time.Now()) {
+			t.Errorf("Created date should be in the past: %v", info.CreatedAt)
+		}
+	})
+}
+
+func TestGetChannelInfo_PrivateChannel(t *testing.T) {
+	// Load credentials from environment
+	apiID := getEnvAsInt("TG_API_ID")
+	apiHash := getEnv("TG_API_HASH")
+	phone := getEnv("TG_PHONE")
+
+	if apiID == 0 || apiHash == "" || phone == "" {
+		t.Skip("Skipping integration test - missing credentials")
+	}
+
+	// Create logger
+	logger := zerolog.New(os.Stdout).With().Timestamp().Logger()
+
+	// Create client
+	client, err := NewMTProtoClient(MTProtoClientConfig{
+		APIID:       apiID,
+		APIHash:     apiHash,
+		PhoneNumber: phone,
+		SessionDir:  "./test_sessions",
+		Logger:      logger,
+	})
+	if err != nil {
+		t.Fatalf("Failed to create client: %v", err)
+	}
+
+	// Connect with timeout
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+
+	err = client.Connect(ctx)
+	if err != nil {
+		t.Fatalf("Failed to connect: %v", err)
+	}
+	defer client.Disconnect(context.Background())
+
+	// Test: Attempt to get private channel info
+	t.Run("handle private channel", func(t *testing.T) {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+
+		// Try to get info for a private/restricted channel
+		// You'll need to replace this with a known private channel username
+		privateChannel := "@some_private_channel_that_doesnt_exist"
+
+		info, err := client.GetChannelInfo(ctx, privateChannel)
+
+		// Should either return ErrChannelNotFound or ErrChannelPrivate
+		if err == nil {
+			// If no error, it means we got basic info (channel exists and is accessible)
+			t.Logf("Channel info retrieved (channel is accessible): %s", info.Title)
+		} else if err == domain.ErrChannelNotFound {
+			t.Logf("Channel not found (expected for non-existent channels)")
+		} else if err == domain.ErrChannelPrivate {
+			t.Logf("Channel is private (expected for private channels)")
+		} else {
+			t.Logf("Got error: %v", err)
+		}
+	})
+
+	// Test: Non-existent channel
+	t.Run("handle non-existent channel", func(t *testing.T) {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+
+		_, err := client.GetChannelInfo(ctx, "@nonexistent_channel_12345678")
+
+		if err != domain.ErrChannelNotFound {
+			t.Errorf("Expected ErrChannelNotFound for non-existent channel, got: %v", err)
+		}
+	})
+}
+*/
+
 // Helper functions for environment variables (used in integration tests)
 // Uncomment when running integration tests
 /*

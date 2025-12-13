@@ -45,6 +45,17 @@ type MTProtoClient struct {
 
 	// Rate limiter for API calls
 	rateLimiter *rate.Limiter
+
+	// Channel info cache with expiration
+	channelInfoCache      map[string]*cachedChannelInfo
+	channelInfoCacheMu    sync.RWMutex
+	channelInfoCacheTTL   time.Duration
+}
+
+// cachedChannelInfo represents a cached channel info entry with expiration
+type cachedChannelInfo struct {
+	info      *domain.ChannelInfo
+	expiresAt time.Time
 }
 
 // MTProtoClientConfig holds configuration for MTProtoClient
@@ -88,13 +99,15 @@ func NewMTProtoClient(cfg MTProtoClientConfig) (*MTProtoClient, error) {
 	maskedPhone := maskPhoneNumber(cfg.PhoneNumber)
 
 	client := &MTProtoClient{
-		apiID:          cfg.APIID,
-		apiHash:        cfg.APIHash,
-		phoneNumber:    cfg.PhoneNumber,
-		sessionStorage: sessionStorage,
-		logger:         cfg.Logger.With().Str("component", "mtproto_client").Str("phone", maskedPhone).Logger(),
-		connected:      false,
-		rateLimiter:    rate.NewLimiter(rate.Every(time.Second), 10), // 10 requests per second
+		apiID:               cfg.APIID,
+		apiHash:             cfg.APIHash,
+		phoneNumber:         cfg.PhoneNumber,
+		sessionStorage:      sessionStorage,
+		logger:              cfg.Logger.With().Str("component", "mtproto_client").Str("phone", maskedPhone).Logger(),
+		connected:           false,
+		rateLimiter:         rate.NewLimiter(rate.Every(time.Second), 10), // 10 requests per second
+		channelInfoCache:    make(map[string]*cachedChannelInfo),
+		channelInfoCacheTTL: 15 * time.Minute, // Cache channel info for 15 minutes
 	}
 
 	return client, nil
@@ -799,46 +812,154 @@ func (c *MTProtoClient) extractMediaURLs(media tg.MessageMediaClass) []string {
 	return urls
 }
 
-// GetChannelInfo retrieves information about a channel
+// GetChannelInfo retrieves detailed information about a channel
 // The caller should provide a context with timeout to prevent hanging operations.
 // Recommended timeout: 30 seconds for normal operations, longer for slow networks.
-func (c *MTProtoClient) GetChannelInfo(ctx context.Context, channelID string) (string, error) {
+// Returns detailed channel information including title, description, participant count, etc.
+// Uses caching with 15-minute TTL to reduce API calls.
+func (c *MTProtoClient) GetChannelInfo(ctx context.Context, channelID string) (*domain.ChannelInfo, error) {
 	// Validate channel ID
 	if err := validateChannelID(channelID); err != nil {
-		return "", err
+		return nil, err
 	}
+
+	// Check cache first
+	c.channelInfoCacheMu.RLock()
+	if cached, ok := c.channelInfoCache[channelID]; ok {
+		if time.Now().Before(cached.expiresAt) {
+			c.channelInfoCacheMu.RUnlock()
+			c.logger.Debug().Str("channel_id", channelID).Msg("returning cached channel info")
+			return cached.info, nil
+		}
+		// Cache expired, will fetch fresh data
+	}
+	c.channelInfoCacheMu.RUnlock()
 
 	c.mu.RLock()
 	if !c.connected || c.api == nil {
 		c.mu.RUnlock()
-		return "", domain.ErrNotConnected
+		return nil, domain.ErrNotConnected
 	}
+	api := c.api
 	c.mu.RUnlock()
 
 	// Apply rate limiting
 	if err := c.rateLimiter.Wait(ctx); err != nil {
-		return "", fmt.Errorf("rate limit wait cancelled: %w", err)
+		return nil, fmt.Errorf("rate limit wait cancelled: %w", err)
 	}
 
-	c.logger.Debug().Str("channel_id", channelID).Msg("fetching channel info")
+	c.logger.Debug().Str("channel_id", channelID).Msg("fetching channel info from API")
 
 	// Resolve the channel
 	username := strings.TrimPrefix(channelID, "@")
-	resolved, err := c.api.ContactsResolveUsername(ctx, &tg.ContactsResolveUsernameRequest{
+	resolved, err := api.ContactsResolveUsername(ctx, &tg.ContactsResolveUsernameRequest{
 		Username: username,
 	})
 	if err != nil {
+		// Handle Telegram-specific errors
+		if tgerr.Is(err, "USERNAME_INVALID") || tgerr.Is(err, "USERNAME_NOT_OCCUPIED") {
+			c.logger.Error().Str("channel_id", channelID).Msg("channel not found")
+			return nil, domain.ErrChannelNotFound
+		}
 		c.logger.Error().Err(err).Str("channel_id", channelID).Msg("failed to resolve channel")
-		return "", fmt.Errorf("failed to resolve channel: %w", err)
+		return nil, fmt.Errorf("failed to resolve channel: %w", err)
 	}
 
+	// Find channel in resolved chats
+	var channel *tg.Channel
 	for _, chat := range resolved.Chats {
-		if channel, ok := chat.(*tg.Channel); ok {
-			return channel.Title, nil
+		if ch, ok := chat.(*tg.Channel); ok {
+			channel = ch
+			break
 		}
 	}
 
-	return "", fmt.Errorf("resolved peer is not a channel")
+	if channel == nil {
+		return nil, fmt.Errorf("resolved peer is not a channel")
+	}
+
+	// Check if channel is accessible
+	if channel.Left {
+		c.logger.Warn().Str("channel_id", channelID).Msg("channel was left")
+	}
+
+	// Build ChannelInfo
+	info := &domain.ChannelInfo{
+		ID:           fmt.Sprintf("%d", channel.ID),
+		Username:     channel.Username,
+		Title:        channel.Title,
+		IsVerified:   channel.Verified,
+		IsRestricted: channel.Restricted,
+		CreatedAt:    time.Unix(int64(channel.Date), 0),
+	}
+
+	// Get full channel information including description and participant count
+	fullChannel, err := c.getFullChannelInfo(ctx, api, channel)
+	if err != nil {
+		// Log error but cache and return basic info
+		c.logger.Warn().Err(err).Str("channel_id", channelID).Msg("failed to get full channel info, returning basic info")
+
+		// Cache basic info
+		c.cacheChannelInfo(channelID, info)
+		return info, nil
+	}
+
+	// Update with full channel information
+	if fullChannel.About != "" {
+		info.About = fullChannel.About
+	}
+	if fullChannel.ParticipantsCount != 0 {
+		info.ParticipantsCount = fullChannel.ParticipantsCount
+	}
+
+	c.logger.Debug().
+		Str("channel_id", channelID).
+		Str("title", info.Title).
+		Int("participants", info.ParticipantsCount).
+		Msg("successfully fetched channel info")
+
+	// Cache full channel info
+	c.cacheChannelInfo(channelID, info)
+
+	return info, nil
+}
+
+// cacheChannelInfo stores channel info in cache with TTL
+func (c *MTProtoClient) cacheChannelInfo(channelID string, info *domain.ChannelInfo) {
+	c.channelInfoCacheMu.Lock()
+	defer c.channelInfoCacheMu.Unlock()
+
+	c.channelInfoCache[channelID] = &cachedChannelInfo{
+		info:      info,
+		expiresAt: time.Now().Add(c.channelInfoCacheTTL),
+	}
+}
+
+// getFullChannelInfo retrieves full channel information using channels.getFullChannel
+func (c *MTProtoClient) getFullChannelInfo(ctx context.Context, api *tg.Client, channel *tg.Channel) (*tg.ChannelFull, error) {
+	inputChannel := &tg.InputChannel{
+		ChannelID:  channel.ID,
+		AccessHash: channel.AccessHash,
+	}
+
+	fullChan, err := api.ChannelsGetFullChannel(ctx, inputChannel)
+	if err != nil {
+		// Handle specific errors
+		if tgerr.Is(err, "CHANNEL_PRIVATE") {
+			return nil, domain.ErrChannelPrivate
+		}
+		if tgerr.Is(err, "CHANNEL_INVALID") {
+			return nil, domain.ErrChannelNotFound
+		}
+		return nil, fmt.Errorf("failed to get full channel: %w", err)
+	}
+
+	// Extract ChannelFull from response
+	if channelFull, ok := fullChan.FullChat.(*tg.ChannelFull); ok {
+		return channelFull, nil
+	}
+
+	return nil, fmt.Errorf("unexpected full chat type: %T", fullChan.FullChat)
 }
 
 // Ensure MTProtoClient implements domain.TelegramClient interface

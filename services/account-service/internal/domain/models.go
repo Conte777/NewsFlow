@@ -36,3 +36,16 @@ type SubscriptionEvent struct {
 	ChannelID   string
 	ChannelName string
 }
+
+// ChannelInfo represents detailed information about a Telegram channel
+type ChannelInfo struct {
+	ID               string
+	Username         string
+	Title            string
+	About            string // Channel description
+	ParticipantsCount int
+	PhotoURL         string // Channel photo URL (if available)
+	IsVerified       bool
+	IsRestricted     bool
+	CreatedAt        time.Time
+}
