@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/YarosTrubechkoi/telegram-news-feed/account-service/internal/domain"
 )
@@ -734,4 +735,330 @@ type mockTelegramClientWithConnectFailure struct {
 
 func (m *mockTelegramClientWithConnectFailure) Connect(ctx context.Context) error {
 	return fmt.Errorf("connection failed")
+}
+
+// Helper: mockTelegramClientWithDisconnectFailure simulates disconnect failures
+type mockTelegramClientWithDisconnectFailure struct {
+	mockTelegramClient
+	disconnectError error
+}
+
+func (m *mockTelegramClientWithDisconnectFailure) Disconnect(ctx context.Context) error {
+	if m.disconnectError != nil {
+		return m.disconnectError
+	}
+	return fmt.Errorf("disconnect failed")
+}
+
+// Tests for Shutdown
+
+func TestShutdown_Success(t *testing.T) {
+	manager := NewAccountManager().(*accountManager)
+	manager.logger = createTestLogger()
+
+	// Add multiple accounts
+	client1 := createTestClient("+1111111111", true)
+	client2 := createTestClient("+2222222222", true)
+	client3 := createTestClient("+3333333333", true)
+
+	manager.AddAccount(client1)
+	manager.AddAccount(client2)
+	manager.AddAccount(client3)
+
+	// Shutdown with timeout
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	successCount := manager.Shutdown(ctx)
+
+	// Verify all accounts were disconnected
+	if successCount != 3 {
+		t.Errorf("Expected 3 successful disconnections, got %d", successCount)
+	}
+}
+
+func TestShutdown_NoAccounts(t *testing.T) {
+	manager := NewAccountManager().(*accountManager)
+	manager.logger = createTestLogger()
+
+	// Shutdown with no accounts
+	ctx := context.Background()
+	successCount := manager.Shutdown(ctx)
+
+	// Verify count is 0
+	if successCount != 0 {
+		t.Errorf("Expected 0 successful disconnections, got %d", successCount)
+	}
+}
+
+func TestShutdown_PartialFailure(t *testing.T) {
+	manager := NewAccountManager().(*accountManager)
+	manager.logger = createTestLogger()
+
+	// Add accounts - one will fail to disconnect
+	client1 := createTestClient("+1111111111", true)
+	client2 := &mockTelegramClientWithDisconnectFailure{
+		mockTelegramClient: mockTelegramClient{
+			accountID: "+2222222222",
+			connected: true,
+		},
+		disconnectError: fmt.Errorf("network error"),
+	}
+	client3 := createTestClient("+3333333333", true)
+
+	manager.AddAccount(client1)
+	manager.AddAccount(client2)
+	manager.AddAccount(client3)
+
+	// Shutdown
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	successCount := manager.Shutdown(ctx)
+
+	// Verify 2 out of 3 succeeded (non-blocking error handling)
+	if successCount != 2 {
+		t.Errorf("Expected 2 successful disconnections, got %d", successCount)
+	}
+}
+
+func TestShutdown_ContextTimeout(t *testing.T) {
+	manager := NewAccountManager().(*accountManager)
+	manager.logger = createTestLogger()
+
+	// Add multiple accounts with slow disconnect (100ms each)
+	for i := 0; i < 5; i++ {
+		client := &mockTelegramClientWithSlowDisconnect{
+			mockTelegramClient: mockTelegramClient{
+				accountID: fmt.Sprintf("+%d000000000", i+1),
+				connected: true,
+			},
+			delay: 100 * time.Millisecond,
+		}
+		manager.AddAccount(client)
+	}
+
+	// Context timeout of 250ms allows only 2 disconnects (100ms + 100ms)
+	ctx, cancel := context.WithTimeout(context.Background(), 250*time.Millisecond)
+	defer cancel()
+
+	successCount := manager.Shutdown(ctx)
+
+	// Should disconnect at least 1 but not all 5 accounts
+	if successCount == 0 {
+		t.Error("Expected at least 1 disconnect before timeout")
+	}
+	if successCount >= 5 {
+		t.Errorf("Expected timeout to interrupt shutdown, but all %d accounts disconnected", successCount)
+	}
+	// Typical result: 2 successful disconnects (200ms < 250ms < 300ms)
+	t.Logf("Disconnected %d out of 5 accounts before timeout", successCount)
+}
+
+func TestShutdown_AllDisconnectErrors(t *testing.T) {
+	manager := NewAccountManager().(*accountManager)
+	manager.logger = createTestLogger()
+
+	// Add accounts that will all fail to disconnect
+	client1 := &mockTelegramClientWithDisconnectFailure{
+		mockTelegramClient: mockTelegramClient{
+			accountID: "+1111111111",
+			connected: true,
+		},
+	}
+	client2 := &mockTelegramClientWithDisconnectFailure{
+		mockTelegramClient: mockTelegramClient{
+			accountID: "+2222222222",
+			connected: true,
+		},
+	}
+
+	manager.AddAccount(client1)
+	manager.AddAccount(client2)
+
+	// Shutdown
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	successCount := manager.Shutdown(ctx)
+
+	// Verify all failed
+	if successCount != 0 {
+		t.Errorf("Expected 0 successful disconnections, got %d", successCount)
+	}
+}
+
+func TestShutdown_SequentialDisconnect(t *testing.T) {
+	manager := NewAccountManager().(*accountManager)
+	manager.logger = createTestLogger()
+
+	// Track disconnect order
+	var disconnectOrder []string
+	var mu sync.Mutex
+
+	// Create mock clients that record disconnect order
+	for i := 0; i < 3; i++ {
+		accountID := fmt.Sprintf("+%d000000000", i+1)
+		client := &mockTelegramClientWithOrderTracking{
+			mockTelegramClient: mockTelegramClient{
+				accountID: accountID,
+				connected: true,
+			},
+			onDisconnect: func(id string) {
+				mu.Lock()
+				disconnectOrder = append(disconnectOrder, id)
+				mu.Unlock()
+			},
+		}
+		manager.AddAccount(client)
+	}
+
+	// Shutdown
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	manager.Shutdown(ctx)
+
+	// Verify sequential disconnect (order should match)
+	if len(disconnectOrder) != 3 {
+		t.Errorf("Expected 3 disconnects, got %d", len(disconnectOrder))
+	}
+}
+
+// Helper: mockTelegramClientWithOrderTracking tracks disconnect order
+type mockTelegramClientWithOrderTracking struct {
+	mockTelegramClient
+	onDisconnect func(string)
+}
+
+func (m *mockTelegramClientWithOrderTracking) Disconnect(ctx context.Context) error {
+	if m.onDisconnect != nil {
+		m.onDisconnect(m.accountID)
+	}
+	return nil
+}
+
+// Helper: mockTelegramClientWithSlowDisconnect simulates slow disconnect with delay
+type mockTelegramClientWithSlowDisconnect struct {
+	mockTelegramClient
+	delay time.Duration
+}
+
+func (m *mockTelegramClientWithSlowDisconnect) Disconnect(ctx context.Context) error {
+	select {
+	case <-time.After(m.delay):
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// Tests for shutdown flag and concurrent shutdown
+
+func TestShutdown_ConcurrentCalls(t *testing.T) {
+	manager := NewAccountManager().(*accountManager)
+	manager.logger = createTestLogger()
+
+	// Add accounts
+	for i := 0; i < 3; i++ {
+		client := createTestClient(fmt.Sprintf("+%d000000000", i+1), true)
+		manager.AddAccount(client)
+	}
+
+	// Call Shutdown concurrently
+	var wg sync.WaitGroup
+	results := make([]int, 2)
+
+	for i := 0; i < 2; i++ {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			results[idx] = manager.Shutdown(ctx)
+		}(i)
+	}
+
+	wg.Wait()
+
+	// Only one Shutdown should succeed
+	successfulShutdowns := 0
+	totalDisconnected := 0
+	for _, count := range results {
+		if count > 0 {
+			successfulShutdowns++
+			totalDisconnected += count
+		}
+	}
+
+	if successfulShutdowns != 1 {
+		t.Errorf("Expected exactly 1 successful shutdown, got %d", successfulShutdowns)
+	}
+	if totalDisconnected != 3 {
+		t.Errorf("Expected 3 total disconnects, got %d", totalDisconnected)
+	}
+}
+
+func TestShutdown_OperationsAfterShutdown(t *testing.T) {
+	manager := NewAccountManager().(*accountManager)
+	manager.logger = createTestLogger()
+
+	// Add accounts
+	client1 := createTestClient("+1111111111", true)
+	manager.AddAccount(client1)
+
+	// Shutdown
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	manager.Shutdown(ctx)
+
+	// Try to add account after shutdown
+	client2 := createTestClient("+2222222222", true)
+	err := manager.AddAccount(client2)
+	if err == nil {
+		t.Error("Expected error when adding account after shutdown")
+	}
+
+	// Try to get available account after shutdown
+	_, err = manager.GetAvailableAccount()
+	if err == nil {
+		t.Error("Expected error when getting account after shutdown")
+	}
+
+	// Try to remove account after shutdown
+	err = manager.RemoveAccount("+1111111111")
+	if err == nil {
+		t.Error("Expected error when removing account after shutdown")
+	}
+
+	// Try to initialize accounts after shutdown
+	report := manager.InitializeAccounts(context.Background(), domain.AccountInitConfig{
+		Accounts: []string{"+3333333333"},
+		Logger:   createTestLogger(),
+	})
+	if report.SuccessfulAccounts != 0 {
+		t.Errorf("Expected 0 initialized accounts after shutdown, got %d", report.SuccessfulAccounts)
+	}
+}
+
+func TestShutdown_GetAllAccountsAfterShutdown(t *testing.T) {
+	manager := NewAccountManager().(*accountManager)
+	manager.logger = createTestLogger()
+
+	// Add accounts
+	client1 := createTestClient("+1111111111", true)
+	client2 := createTestClient("+2222222222", true)
+	manager.AddAccount(client1)
+	manager.AddAccount(client2)
+
+	// Shutdown
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	manager.Shutdown(ctx)
+
+	// GetAllAccounts should still work (read-only operation)
+	accounts := manager.GetAllAccounts()
+	if len(accounts) != 2 {
+		t.Errorf("Expected GetAllAccounts to return 2 accounts even after shutdown, got %d", len(accounts))
+	}
 }

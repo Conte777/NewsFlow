@@ -63,6 +63,12 @@ type AccountManager interface {
 	// It creates clients for each phone number and connects them in parallel.
 	// Returns a detailed report about initialization success/failure.
 	InitializeAccounts(ctx context.Context, cfg AccountInitConfig) *InitializationReport
+
+	// Shutdown gracefully disconnects all managed accounts
+	// It disconnects accounts sequentially with proper error handling.
+	// The context should have a timeout (recommended 30 seconds).
+	// Returns the number of successfully disconnected accounts.
+	Shutdown(ctx context.Context) int
 }
 
 // ChannelRepository defines interface for channel subscription storage

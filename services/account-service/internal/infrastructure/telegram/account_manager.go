@@ -7,6 +7,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/rs/zerolog"
+
 	"github.com/YarosTrubechkoi/telegram-news-feed/account-service/internal/domain"
 )
 
@@ -22,6 +24,13 @@ type accountManager struct {
 
 	// clientFactory is used to create new clients (can be overridden for testing)
 	clientFactory ClientFactory
+
+	// logger is used for logging shutdown process and errors
+	// If not set, uses zerolog.Nop()
+	logger zerolog.Logger
+
+	// isShutdown prevents operations after Shutdown has been called
+	isShutdown atomic.Bool
 }
 
 // NewAccountManager creates a new account manager
@@ -30,7 +39,14 @@ func NewAccountManager() domain.AccountManager {
 		accounts:      make(map[string]domain.TelegramClient),
 		accountIDs:    make([]string, 0),
 		clientFactory: defaultClientFactory,
+		logger:        zerolog.Nop(), // Default to no-op logger
 	}
+}
+
+// WithLogger sets a logger for the account manager (optional, for shutdown logging)
+func (m *accountManager) WithLogger(logger zerolog.Logger) *accountManager {
+	m.logger = logger
+	return m
 }
 
 // defaultClientFactory is the default factory that creates real MTProtoClient instances
@@ -49,6 +65,14 @@ func defaultClientFactory(cfg MTProtoClientConfig) (domain.TelegramClient, error
 //
 // Returns a detailed report about initialization success/failure.
 func (m *accountManager) InitializeAccounts(ctx context.Context, cfg domain.AccountInitConfig) *domain.InitializationReport {
+	if m.isShutdown.Load() {
+		cfg.Logger.Warn().Msg("Cannot initialize accounts: manager is shut down")
+		return &domain.InitializationReport{
+			TotalAccounts: len(cfg.Accounts),
+			Errors:        make(map[string]error),
+		}
+	}
+
 	report := &domain.InitializationReport{
 		TotalAccounts: len(cfg.Accounts),
 		Errors:        make(map[string]error),
@@ -181,6 +205,10 @@ func (m *accountManager) InitializeAccounts(ctx context.Context, cfg domain.Acco
 // GetAvailableAccount returns an available account for operation
 // Uses round-robin load balancing and health checks (IsConnected)
 func (m *accountManager) GetAvailableAccount() (domain.TelegramClient, error) {
+	if m.isShutdown.Load() {
+		return nil, fmt.Errorf("account manager is shut down")
+	}
+
 	m.mu.RLock()
 	if len(m.accountIDs) == 0 {
 		m.mu.RUnlock()
@@ -239,6 +267,10 @@ func (m *accountManager) GetAllAccounts() []domain.TelegramClient {
 
 // AddAccount adds a new account to the pool
 func (m *accountManager) AddAccount(client domain.TelegramClient) error {
+	if m.isShutdown.Load() {
+		return fmt.Errorf("cannot add account: manager is shut down")
+	}
+
 	if client == nil {
 		return fmt.Errorf("cannot add nil client")
 	}
@@ -265,6 +297,10 @@ func (m *accountManager) AddAccount(client domain.TelegramClient) error {
 
 // RemoveAccount removes an account from the pool by account ID
 func (m *accountManager) RemoveAccount(accountID string) error {
+	if m.isShutdown.Load() {
+		return fmt.Errorf("cannot remove account: manager is shut down")
+	}
+
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -294,4 +330,95 @@ func (m *accountManager) RemoveAccount(accountID string) error {
 	}
 
 	return nil
+}
+
+// Shutdown gracefully disconnects all managed accounts
+//
+// The method implements the following behavior:
+// - Disconnects accounts sequentially (not in parallel) for predictable behavior
+// - Non-blocking error handling: continues disconnecting even if some fail
+// - Respects context timeout (recommended 30 seconds)
+// - Logs progress and errors for monitoring
+// - Returns count of successfully disconnected accounts
+// - Can only be called once; subsequent calls return 0
+//
+// Context cancellation or timeout will stop the shutdown process early.
+// Partially disconnected state is acceptable for graceful degradation.
+func (m *accountManager) Shutdown(ctx context.Context) int {
+	// Atomically set shutdown flag (prevents concurrent shutdowns)
+	if !m.isShutdown.CompareAndSwap(false, true) {
+		m.logger.Warn().Msg("Shutdown already in progress or completed")
+		return 0
+	}
+
+	m.mu.RLock()
+	accountCount := len(m.accountIDs)
+
+	// Create snapshot of accounts to avoid holding lock during disconnect
+	accountsToDisconnect := make([]struct {
+		id     string
+		client domain.TelegramClient
+	}, 0, accountCount)
+
+	for _, id := range m.accountIDs {
+		if client, exists := m.accounts[id]; exists {
+			accountsToDisconnect = append(accountsToDisconnect, struct {
+				id     string
+				client domain.TelegramClient
+			}{id: id, client: client})
+		}
+	}
+	m.mu.RUnlock()
+
+	if accountCount == 0 {
+		m.logger.Info().Msg("No accounts to shutdown")
+		return 0
+	}
+
+	m.logger.Info().
+		Int("total_accounts", accountCount).
+		Msg("Starting graceful shutdown of accounts")
+
+	successCount := 0
+	failedCount := 0
+
+	// Disconnect accounts sequentially
+	for _, acc := range accountsToDisconnect {
+		// Check for context cancellation
+		select {
+		case <-ctx.Done():
+			m.logger.Warn().
+				Err(ctx.Err()).
+				Int("disconnected", successCount).
+				Int("failed", failedCount).
+				Int("remaining", accountCount-successCount-failedCount).
+				Msg("Shutdown interrupted by context cancellation")
+			return successCount
+		default:
+		}
+
+		maskedID := maskPhoneNumber(acc.id)
+		logger := m.logger.With().Str("account", maskedID).Logger()
+
+		logger.Debug().Msg("Disconnecting account")
+
+		// Disconnect with context timeout
+		if err := acc.client.Disconnect(ctx); err != nil {
+			logger.Warn().Err(err).Msg("Failed to disconnect account")
+			failedCount++
+			// Continue to next account (non-blocking error handling)
+			continue
+		}
+
+		logger.Info().Msg("Account disconnected successfully")
+		successCount++
+	}
+
+	m.logger.Info().
+		Int("total", accountCount).
+		Int("successful", successCount).
+		Int("failed", failedCount).
+		Msg("Account shutdown completed")
+
+	return successCount
 }
