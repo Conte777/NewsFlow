@@ -58,6 +58,11 @@ type AccountManager interface {
 
 	// RemoveAccount removes an account
 	RemoveAccount(accountID string) error
+
+	// InitializeAccounts loads and initializes Telegram accounts from configuration
+	// It creates clients for each phone number and connects them in parallel.
+	// Returns a detailed report about initialization success/failure.
+	InitializeAccounts(ctx context.Context, cfg AccountInitConfig) *InitializationReport
 }
 
 // ChannelRepository defines interface for channel subscription storage

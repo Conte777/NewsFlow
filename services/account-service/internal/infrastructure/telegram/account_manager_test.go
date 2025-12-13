@@ -2,6 +2,7 @@ package telegram
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"testing"
 
@@ -488,4 +489,249 @@ func TestAccountManager_ConcurrentConnectionChanges(t *testing.T) {
 	if len(accounts) != 5 {
 		t.Errorf("Expected 5 accounts after concurrent operations, got %d", len(accounts))
 	}
+}
+
+// Tests for InitializeAccounts
+
+func TestInitializeAccounts_Success(t *testing.T) {
+	manager := NewAccountManager().(*accountManager)
+
+	// Set up mock client factory that returns connected clients
+	callCount := 0
+	manager.clientFactory = func(cfg MTProtoClientConfig) (domain.TelegramClient, error) {
+		callCount++
+		client := createTestClient(cfg.PhoneNumber, true)
+		return client, nil
+	}
+
+	// Create test logger
+	logger := createTestLogger()
+
+	// Initialize accounts
+	ctx := context.Background()
+	cfg := domain.AccountInitConfig{
+		APIID:      12345,
+		APIHash:    "test_hash",
+		SessionDir: "./test_sessions",
+		Accounts:   []string{"+1111111111", "+2222222222", "+3333333333"},
+		Logger:     logger,
+	}
+
+	report := manager.InitializeAccounts(ctx, cfg)
+
+	// Verify report
+	if report.TotalAccounts != 3 {
+		t.Errorf("Expected TotalAccounts=3, got %d", report.TotalAccounts)
+	}
+	if report.SuccessfulAccounts != 3 {
+		t.Errorf("Expected SuccessfulAccounts=3, got %d", report.SuccessfulAccounts)
+	}
+	if report.FailedAccounts != 0 {
+		t.Errorf("Expected FailedAccounts=0, got %d", report.FailedAccounts)
+	}
+	if len(report.Errors) != 0 {
+		t.Errorf("Expected no errors, got %d", len(report.Errors))
+	}
+
+	// Verify factory was called 3 times
+	if callCount != 3 {
+		t.Errorf("Expected factory to be called 3 times, got %d", callCount)
+	}
+
+	// Verify accounts were added to manager
+	accounts := manager.GetAllAccounts()
+	if len(accounts) != 3 {
+		t.Errorf("Expected 3 accounts in manager, got %d", len(accounts))
+	}
+}
+
+func TestInitializeAccounts_EmptyList(t *testing.T) {
+	manager := NewAccountManager().(*accountManager)
+
+	// Create test logger
+	logger := createTestLogger()
+
+	// Initialize with empty account list
+	ctx := context.Background()
+	cfg := domain.AccountInitConfig{
+		APIID:      12345,
+		APIHash:    "test_hash",
+		SessionDir: "./test_sessions",
+		Accounts:   []string{},
+		Logger:     logger,
+	}
+
+	report := manager.InitializeAccounts(ctx, cfg)
+
+	// Verify report
+	if report.TotalAccounts != 0 {
+		t.Errorf("Expected TotalAccounts=0, got %d", report.TotalAccounts)
+	}
+	if report.SuccessfulAccounts != 0 {
+		t.Errorf("Expected SuccessfulAccounts=0, got %d", report.SuccessfulAccounts)
+	}
+	if report.FailedAccounts != 0 {
+		t.Errorf("Expected FailedAccounts=0, got %d", report.FailedAccounts)
+	}
+
+	// Verify no accounts were added
+	accounts := manager.GetAllAccounts()
+	if len(accounts) != 0 {
+		t.Errorf("Expected 0 accounts in manager, got %d", len(accounts))
+	}
+}
+
+func TestInitializeAccounts_PartialFailure(t *testing.T) {
+	manager := NewAccountManager().(*accountManager)
+
+	// Set up mock client factory that fails for specific phone numbers
+	manager.clientFactory = func(cfg MTProtoClientConfig) (domain.TelegramClient, error) {
+		if cfg.PhoneNumber == "+2222222222" {
+			return nil, fmt.Errorf("connection failed")
+		}
+		client := createTestClient(cfg.PhoneNumber, true)
+		return client, nil
+	}
+
+	// Create test logger
+	logger := createTestLogger()
+
+	// Initialize accounts
+	ctx := context.Background()
+	cfg := domain.AccountInitConfig{
+		APIID:      12345,
+		APIHash:    "test_hash",
+		SessionDir: "./test_sessions",
+		Accounts:   []string{"+1111111111", "+2222222222", "+3333333333"},
+		Logger:     logger,
+	}
+
+	report := manager.InitializeAccounts(ctx, cfg)
+
+	// Verify report
+	if report.TotalAccounts != 3 {
+		t.Errorf("Expected TotalAccounts=3, got %d", report.TotalAccounts)
+	}
+	if report.SuccessfulAccounts != 2 {
+		t.Errorf("Expected SuccessfulAccounts=2, got %d", report.SuccessfulAccounts)
+	}
+	if report.FailedAccounts != 1 {
+		t.Errorf("Expected FailedAccounts=1, got %d", report.FailedAccounts)
+	}
+	if len(report.Errors) != 1 {
+		t.Errorf("Expected 1 error, got %d", len(report.Errors))
+	}
+
+	// Verify the specific error (phone number should be masked)
+	maskedPhone := maskPhoneNumber("+2222222222")
+	if _, exists := report.Errors[maskedPhone]; !exists {
+		t.Errorf("Expected error for %s (masked +2222222222)", maskedPhone)
+	}
+
+	// Verify only successful accounts were added
+	accounts := manager.GetAllAccounts()
+	if len(accounts) != 2 {
+		t.Errorf("Expected 2 accounts in manager, got %d", len(accounts))
+	}
+}
+
+func TestInitializeAccounts_AllFailures(t *testing.T) {
+	manager := NewAccountManager().(*accountManager)
+
+	// Set up mock client factory that always fails
+	manager.clientFactory = func(cfg MTProtoClientConfig) (domain.TelegramClient, error) {
+		return nil, fmt.Errorf("connection failed")
+	}
+
+	// Create test logger
+	logger := createTestLogger()
+
+	// Initialize accounts
+	ctx := context.Background()
+	cfg := domain.AccountInitConfig{
+		APIID:      12345,
+		APIHash:    "test_hash",
+		SessionDir: "./test_sessions",
+		Accounts:   []string{"+1111111111", "+2222222222"},
+		Logger:     logger,
+	}
+
+	report := manager.InitializeAccounts(ctx, cfg)
+
+	// Verify report
+	if report.TotalAccounts != 2 {
+		t.Errorf("Expected TotalAccounts=2, got %d", report.TotalAccounts)
+	}
+	if report.SuccessfulAccounts != 0 {
+		t.Errorf("Expected SuccessfulAccounts=0, got %d", report.SuccessfulAccounts)
+	}
+	if report.FailedAccounts != 2 {
+		t.Errorf("Expected FailedAccounts=2, got %d", report.FailedAccounts)
+	}
+	if len(report.Errors) != 2 {
+		t.Errorf("Expected 2 errors, got %d", len(report.Errors))
+	}
+
+	// Verify no accounts were added
+	accounts := manager.GetAllAccounts()
+	if len(accounts) != 0 {
+		t.Errorf("Expected 0 accounts in manager, got %d", len(accounts))
+	}
+}
+
+func TestInitializeAccounts_ConnectFailure(t *testing.T) {
+	manager := NewAccountManager().(*accountManager)
+
+	// Set up mock client factory that returns disconnected clients
+	manager.clientFactory = func(cfg MTProtoClientConfig) (domain.TelegramClient, error) {
+		// Create client that fails on Connect
+		client := &mockTelegramClientWithConnectFailure{
+			mockTelegramClient: mockTelegramClient{
+				accountID: cfg.PhoneNumber,
+				connected: false,
+			},
+		}
+		return client, nil
+	}
+
+	// Create test logger
+	logger := createTestLogger()
+
+	// Initialize accounts
+	ctx := context.Background()
+	cfg := domain.AccountInitConfig{
+		APIID:      12345,
+		APIHash:    "test_hash",
+		SessionDir: "./test_sessions",
+		Accounts:   []string{"+1111111111"},
+		Logger:     logger,
+	}
+
+	report := manager.InitializeAccounts(ctx, cfg)
+
+	// Verify report shows connection failure
+	if report.TotalAccounts != 1 {
+		t.Errorf("Expected TotalAccounts=1, got %d", report.TotalAccounts)
+	}
+	if report.SuccessfulAccounts != 0 {
+		t.Errorf("Expected SuccessfulAccounts=0, got %d", report.SuccessfulAccounts)
+	}
+	if report.FailedAccounts != 1 {
+		t.Errorf("Expected FailedAccounts=1, got %d", report.FailedAccounts)
+	}
+
+	// Verify no accounts were added
+	accounts := manager.GetAllAccounts()
+	if len(accounts) != 0 {
+		t.Errorf("Expected 0 accounts in manager, got %d", len(accounts))
+	}
+}
+
+// Helper: mockTelegramClientWithConnectFailure simulates connection failures
+type mockTelegramClientWithConnectFailure struct {
+	mockTelegramClient
+}
+
+func (m *mockTelegramClientWithConnectFailure) Connect(ctx context.Context) error {
+	return fmt.Errorf("connection failed")
 }

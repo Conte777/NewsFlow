@@ -1,12 +1,17 @@
 package telegram
 
 import (
+	"context"
 	"fmt"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/YarosTrubechkoi/telegram-news-feed/account-service/internal/domain"
 )
+
+// ClientFactory is a function type for creating Telegram clients
+type ClientFactory func(cfg MTProtoClientConfig) (domain.TelegramClient, error)
 
 // accountManager manages a pool of Telegram MTProto accounts
 type accountManager struct {
@@ -14,14 +19,163 @@ type accountManager struct {
 	accountIDs []string                          // ordered list for round-robin iteration
 	mu         sync.RWMutex
 	currentIdx atomic.Int32 // current index for round-robin load balancing
+
+	// clientFactory is used to create new clients (can be overridden for testing)
+	clientFactory ClientFactory
 }
 
 // NewAccountManager creates a new account manager
 func NewAccountManager() domain.AccountManager {
 	return &accountManager{
-		accounts:   make(map[string]domain.TelegramClient),
-		accountIDs: make([]string, 0),
+		accounts:      make(map[string]domain.TelegramClient),
+		accountIDs:    make([]string, 0),
+		clientFactory: defaultClientFactory,
 	}
+}
+
+// defaultClientFactory is the default factory that creates real MTProtoClient instances
+func defaultClientFactory(cfg MTProtoClientConfig) (domain.TelegramClient, error) {
+	return NewMTProtoClient(cfg)
+}
+
+// InitializeAccounts loads and initializes Telegram accounts from configuration
+// It creates MTProtoClient for each phone number and connects them in parallel.
+//
+// The method implements the following safety measures:
+// - Worker pool pattern to limit concurrent goroutines (prevents resource exhaustion)
+// - Context cancellation support (graceful shutdown)
+// - Proper cleanup of failed connections (timeout-based disconnect)
+// - Phone number masking in error reports (security)
+//
+// Returns a detailed report about initialization success/failure.
+func (m *accountManager) InitializeAccounts(ctx context.Context, cfg domain.AccountInitConfig) *domain.InitializationReport {
+	report := &domain.InitializationReport{
+		TotalAccounts: len(cfg.Accounts),
+		Errors:        make(map[string]error),
+	}
+
+	if len(cfg.Accounts) == 0 {
+		cfg.Logger.Warn().Msg("No accounts configured for initialization")
+		return report
+	}
+
+	// Set default MaxConcurrent if not specified
+	maxConcurrent := cfg.MaxConcurrent
+	if maxConcurrent <= 0 {
+		maxConcurrent = 10 // Default limit to prevent resource exhaustion
+	}
+
+	cfg.Logger.Info().
+		Int("count", len(cfg.Accounts)).
+		Int("max_concurrent", maxConcurrent).
+		Msg("Starting account initialization")
+
+	// Use WaitGroup for parallel connection
+	var wg sync.WaitGroup
+	reportMu := sync.Mutex{} // Renamed for consistency
+
+	// Semaphore for limiting concurrent goroutines (worker pool pattern)
+	semaphore := make(chan struct{}, maxConcurrent)
+
+	for _, phoneNumber := range cfg.Accounts {
+		wg.Add(1)
+		go func(phone string) {
+			defer wg.Done()
+
+			// Check for context cancellation before starting work
+			select {
+			case <-ctx.Done():
+				cfg.Logger.Debug().
+					Str("phone", maskPhoneNumber(phone)).
+					Msg("Skipping account initialization due to context cancellation")
+				reportMu.Lock()
+				report.Errors[maskPhoneNumber(phone)] = ctx.Err()
+				report.FailedAccounts++
+				reportMu.Unlock()
+				return
+			default:
+			}
+
+			// Acquire semaphore (worker pool)
+			select {
+			case semaphore <- struct{}{}:
+				defer func() { <-semaphore }()
+			case <-ctx.Done():
+				reportMu.Lock()
+				report.Errors[maskPhoneNumber(phone)] = ctx.Err()
+				report.FailedAccounts++
+				reportMu.Unlock()
+				return
+			}
+
+			maskedPhone := maskPhoneNumber(phone)
+			logger := cfg.Logger.With().Str("phone", maskedPhone).Logger()
+
+			// Create MTProto client using factory
+			client, err := m.clientFactory(MTProtoClientConfig{
+				APIID:       cfg.APIID,
+				APIHash:     cfg.APIHash,
+				PhoneNumber: phone,
+				SessionDir:  cfg.SessionDir,
+				Logger:      logger,
+			})
+
+			if err != nil {
+				logger.Warn().Err(err).Msg("Failed to create MTProto client")
+				reportMu.Lock()
+				report.Errors[maskedPhone] = fmt.Errorf("create client: %w", err)
+				report.FailedAccounts++
+				reportMu.Unlock()
+				return
+			}
+
+			// Connect to Telegram with context
+			if err := client.Connect(ctx); err != nil {
+				logger.Warn().Err(err).Msg("Failed to connect account")
+				reportMu.Lock()
+				report.Errors[maskedPhone] = fmt.Errorf("connect: %w", err)
+				report.FailedAccounts++
+				reportMu.Unlock()
+				return
+			}
+
+			// Add to account manager
+			if err := m.AddAccount(client); err != nil {
+				logger.Warn().Err(err).Msg("Failed to add account to manager")
+
+				// Disconnect the client since we can't add it
+				// Use timeout context for graceful shutdown (not context.Background())
+				disconnectCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				defer cancel()
+
+				if disconnectErr := client.Disconnect(disconnectCtx); disconnectErr != nil {
+					logger.Warn().Err(disconnectErr).Msg("Failed to disconnect client during cleanup")
+				}
+
+				reportMu.Lock()
+				report.Errors[maskedPhone] = fmt.Errorf("add account: %w", err)
+				report.FailedAccounts++
+				reportMu.Unlock()
+				return
+			}
+
+			logger.Info().Msg("Account initialized successfully")
+			reportMu.Lock()
+			report.SuccessfulAccounts++
+			reportMu.Unlock()
+		}(phoneNumber)
+	}
+
+	// Wait for all goroutines to complete
+	wg.Wait()
+
+	cfg.Logger.Info().
+		Int("total", report.TotalAccounts).
+		Int("successful", report.SuccessfulAccounts).
+		Int("failed", report.FailedAccounts).
+		Msg("Account initialization completed")
+
+	return report
 }
 
 // GetAvailableAccount returns an available account for operation
