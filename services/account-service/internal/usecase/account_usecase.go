@@ -172,7 +172,7 @@ func (u *accountUseCase) CollectNews(ctx context.Context) error {
 
 	// Collect news from each channel
 	for _, channel := range channels {
-		newsItems, err := client.GetChannelMessages(ctx, channel.ChannelID, 10)
+		newsItems, err := client.GetChannelMessages(ctx, channel.ChannelID, 10, 0)
 		if err != nil {
 			u.logger.Error().Err(err).
 				Str("channel_id", channel.ChannelID).

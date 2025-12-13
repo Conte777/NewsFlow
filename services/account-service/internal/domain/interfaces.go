@@ -32,8 +32,8 @@ type TelegramClient interface {
 	// LeaveChannel leaves a Telegram channel
 	LeaveChannel(ctx context.Context, channelID string) error
 
-	// GetChannelMessages retrieves recent messages from a channel
-	GetChannelMessages(ctx context.Context, channelID string, limit int) ([]NewsItem, error)
+	// GetChannelMessages retrieves recent messages from a channel with pagination support
+	GetChannelMessages(ctx context.Context, channelID string, limit, offset int) ([]NewsItem, error)
 
 	// GetChannelInfo retrieves information about a channel
 	GetChannelInfo(ctx context.Context, channelID string) (string, error) // Returns channel name

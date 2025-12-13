@@ -320,6 +320,40 @@ func (c *MTProtoClient) resolveChannel(ctx context.Context, channelID string) (*
 	return nil, fmt.Errorf("resolved peer is not a channel")
 }
 
+// resolveChannelWithInfo resolves a channel and extracts both InputChannel and channel name
+// This combines channel resolution and info retrieval to avoid duplicate API calls
+func (c *MTProtoClient) resolveChannelWithInfo(ctx context.Context, api *tg.Client, channelID string) (*tg.InputChannel, string, error) {
+	if !strings.HasPrefix(channelID, "@") {
+		return nil, "", fmt.Errorf("resolving by numeric ID requires access hash, use @username format")
+	}
+
+	username := strings.TrimPrefix(channelID, "@")
+	resolved, err := api.ContactsResolveUsername(ctx, &tg.ContactsResolveUsernameRequest{
+		Username: username,
+	})
+	if err != nil {
+		c.logger.Error().Err(err).Str("channel_id", channelID).Msg("failed to resolve channel")
+		return nil, "", fmt.Errorf("failed to resolve channel: %w", err)
+	}
+
+	// Extract channel from resolved peer
+	for _, chat := range resolved.Chats {
+		if channel, ok := chat.(*tg.Channel); ok {
+			inputChannel := &tg.InputChannel{
+				ChannelID:  channel.ID,
+				AccessHash: channel.AccessHash,
+			}
+			channelName := channel.Title
+			if channelName == "" {
+				channelName = channelID
+			}
+			return inputChannel, channelName, nil
+		}
+	}
+
+	return nil, "", fmt.Errorf("resolved peer is not a channel")
+}
+
 // JoinChannel joins a Telegram channel with retry mechanism for FloodWait
 // Supports both @username and numeric channel ID formats
 // The caller should provide a context with timeout to prevent hanging operations.
@@ -499,13 +533,24 @@ func (c *MTProtoClient) LeaveChannel(ctx context.Context, channelID string) erro
 	return nil
 }
 
-// GetChannelMessages retrieves recent messages from a channel
+// GetChannelMessages retrieves recent messages from a channel with pagination support
 // The caller should provide a context with timeout to prevent hanging operations.
 // Recommended timeout: 30-60 seconds depending on message count and network conditions.
-func (c *MTProtoClient) GetChannelMessages(ctx context.Context, channelID string, limit int) ([]domain.NewsItem, error) {
+// offset parameter skips the first N messages (0 means no offset)
+func (c *MTProtoClient) GetChannelMessages(ctx context.Context, channelID string, limit, offset int) ([]domain.NewsItem, error) {
 	// Validate channel ID
 	if err := validateChannelID(channelID); err != nil {
 		return nil, err
+	}
+
+	// Validate limit and offset with upper bounds
+	if limit <= 0 {
+		limit = 10 // Default limit
+	} else if limit > 100 {
+		limit = 100 // Maximum limit to prevent abuse and excessive API usage
+	}
+	if offset < 0 {
+		offset = 0
 	}
 
 	c.mu.RLock()
@@ -513,6 +558,8 @@ func (c *MTProtoClient) GetChannelMessages(ctx context.Context, channelID string
 		c.mu.RUnlock()
 		return nil, domain.ErrNotConnected
 	}
+	// Capture api reference while holding lock to prevent race conditions
+	api := c.api
 	c.mu.RUnlock()
 
 	// Apply rate limiting
@@ -520,53 +567,236 @@ func (c *MTProtoClient) GetChannelMessages(ctx context.Context, channelID string
 		return nil, fmt.Errorf("rate limit wait cancelled: %w", err)
 	}
 
-	c.logger.Debug().Str("channel_id", channelID).Int("limit", limit).Msg("fetching channel messages")
+	c.logger.Debug().
+		Str("channel_id", channelID).
+		Int("limit", limit).
+		Int("offset", offset).
+		Msg("fetching channel messages")
 
-	// Resolve the channel
-	inputChannel, err := c.resolveChannel(ctx, channelID)
+	// Resolve the channel and get channel info in one operation
+	inputChannel, channelName, err := c.resolveChannelWithInfo(ctx, api, channelID)
 	if err != nil {
 		return nil, err
 	}
 
-	// Get messages from the channel
-	messagesRequest := &tg.MessagesGetHistoryRequest{
-		Peer:  &tg.InputPeerChannel{ChannelID: inputChannel.GetChannelID(), AccessHash: inputChannel.GetAccessHash()},
-		Limit: limit,
+	// Calculate safe fetch limit with upper bound to prevent excessive API usage
+	// For small offsets, fetch offset + limit messages and slice locally
+	// For large offsets (>= 100), return empty to avoid API abuse
+	maxFetch := limit + offset
+	if offset >= 100 {
+		c.logger.Debug().
+			Str("channel_id", channelID).
+			Int("offset", offset).
+			Msg("offset too large, returning empty results")
+		return []domain.NewsItem{}, nil
+	}
+	if maxFetch > 100 {
+		maxFetch = 100
 	}
 
-	result, err := c.api.MessagesGetHistory(ctx, messagesRequest)
+	// Get messages from the channel with offset support
+	messagesRequest := &tg.MessagesGetHistoryRequest{
+		Peer:     &tg.InputPeerChannel{ChannelID: inputChannel.GetChannelID(), AccessHash: inputChannel.GetAccessHash()},
+		OffsetID: 0,
+		Limit:    maxFetch,
+	}
+
+	result, err := api.MessagesGetHistory(ctx, messagesRequest)
 	if err != nil {
 		c.logger.Error().Err(err).Str("channel_id", channelID).Msg("failed to get messages")
 		return nil, fmt.Errorf("failed to get messages: %w", err)
 	}
 
-	// Parse messages
-	var newsItems []domain.NewsItem
+	// Parse messages using helper function
+	var messageSlice []tg.MessageClass
 	switch messages := result.(type) {
 	case *tg.MessagesChannelMessages:
-		for _, msg := range messages.Messages {
-			if message, ok := msg.(*tg.Message); ok {
-				newsItem := domain.NewsItem{
-					ChannelID: channelID,
-					MessageID: message.ID,
-					Content:   message.Message,
-					Date:      time.Unix(int64(message.Date), 0),
-				}
+		messageSlice = messages.Messages
+	case *tg.MessagesMessages:
+		messageSlice = messages.Messages
+	default:
+		c.logger.Warn().Str("channel_id", channelID).Str("type", fmt.Sprintf("%T", result)).Msg("unexpected message type")
+		return []domain.NewsItem{}, nil
+	}
 
-				// Extract media URLs if present
-				if message.Media != nil {
-					// Handle different media types
-					// This is simplified - full implementation would handle photos, documents, etc.
-					newsItem.MediaURLs = []string{} // Placeholder
-				}
+	newsItems := c.processMessagesSlice(messageSlice, channelID, channelName, offset, limit)
 
-				newsItems = append(newsItems, newsItem)
+	c.logger.Debug().
+		Str("channel_id", channelID).
+		Int("messages_count", len(newsItems)).
+		Msg("fetched messages")
+	return newsItems, nil
+}
+
+// processMessagesSlice processes a slice of Telegram messages and converts them to NewsItems
+// This helper function eliminates code duplication between different message type handlers
+func (c *MTProtoClient) processMessagesSlice(messages []tg.MessageClass, channelID, channelName string, offset, limit int) []domain.NewsItem {
+	// Handle empty message list
+	if len(messages) == 0 {
+		c.logger.Debug().Str("channel_id", channelID).Msg("no messages to process")
+		return []domain.NewsItem{}
+	}
+
+	// Apply offset by skipping first N messages
+	startIdx := offset
+	if startIdx >= len(messages) {
+		c.logger.Debug().
+			Str("channel_id", channelID).
+			Int("offset", offset).
+			Int("total_messages", len(messages)).
+			Msg("offset exceeds message count")
+		return []domain.NewsItem{}
+	}
+
+	messagesToProcess := messages[startIdx:]
+	if len(messagesToProcess) > limit {
+		messagesToProcess = messagesToProcess[:limit]
+	}
+
+	// Pre-allocate slice with expected capacity for better performance
+	newsItems := make([]domain.NewsItem, 0, len(messagesToProcess))
+
+	for _, msg := range messagesToProcess {
+		// Handle regular messages
+		if message, ok := msg.(*tg.Message); ok {
+			newsItem := domain.NewsItem{
+				ChannelID:   channelID,
+				ChannelName: channelName,
+				MessageID:   message.ID,
+				Content:     message.Message,
+				MediaURLs:   []string{},
+				Date:        time.Unix(int64(message.Date), 0),
 			}
+
+			// Extract media URLs if present
+			if message.Media != nil {
+				newsItem.MediaURLs = c.extractMediaURLs(message.Media)
+			}
+
+			newsItems = append(newsItems, newsItem)
+		} else if _, ok := msg.(*tg.MessageEmpty); ok {
+			// Handle deleted/empty messages - skip them
+			c.logger.Debug().
+				Str("channel_id", channelID).
+				Msg("skipping deleted/empty message")
+			continue
+		} else if msgService, ok := msg.(*tg.MessageService); ok {
+			// Handle service messages - skip them (channel created, user joined, etc.)
+			c.logger.Debug().
+				Str("channel_id", channelID).
+				Int("message_id", msgService.ID).
+				Msg("skipping service message")
+			continue
 		}
 	}
 
-	c.logger.Debug().Str("channel_id", channelID).Int("messages_count", len(newsItems)).Msg("fetched messages")
-	return newsItems, nil
+	return newsItems
+}
+
+// extractMediaURLs extracts media URLs from different message media types
+//
+// For Telegram-hosted media (photos, videos, documents), returns pseudo-URLs
+// in the format "type://id" or "type://id:filename" since actual downloads
+// require additional file references and access hashes not stored here.
+//
+// Supported URL schemes:
+//   - photo://[id] - Photo media (use ID with Telegram API to download)
+//   - video://[id][:filename] - Video files
+//   - audio://[id][:filename] - Audio files
+//   - document://[id][:filename] - Generic documents
+//   - http(s)://... - Web URLs from MessageMediaWebPage
+//   - geo:[lat],[long] - Geographic coordinates (RFC 5870 format)
+//   - contact://tel:[phone] - Contact information
+//
+// To download Telegram media, consumers must use the Telegram API with
+// the extracted ID plus the file's access hash and file reference.
+//
+// Returns empty slice if no media is present or media type is unsupported (e.g., polls).
+func (c *MTProtoClient) extractMediaURLs(media tg.MessageMediaClass) []string {
+	var urls []string
+
+	switch m := media.(type) {
+	case *tg.MessageMediaPhoto:
+		// Extract photo URL
+		if photo, ok := m.Photo.(*tg.Photo); ok {
+			// Build a reference URL using photo ID
+			// Note: Actual download would require file reference and access hash
+			photoURL := fmt.Sprintf("photo://%d", photo.ID)
+			urls = append(urls, photoURL)
+		}
+
+	case *tg.MessageMediaDocument:
+		// Extract document/video/audio URL
+		if doc, ok := m.Document.(*tg.Document); ok {
+			// Determine document type from attributes
+			docType := "document"
+			var fileName string
+
+			for _, attr := range doc.Attributes {
+				switch a := attr.(type) {
+				case *tg.DocumentAttributeVideo:
+					docType = "video"
+				case *tg.DocumentAttributeAudio:
+					docType = "audio"
+				case *tg.DocumentAttributeFilename:
+					fileName = a.FileName
+				}
+			}
+
+			// Build a reference URL
+			docURL := fmt.Sprintf("%s://%d", docType, doc.ID)
+			if fileName != "" {
+				docURL = fmt.Sprintf("%s:%s", docURL, fileName)
+			}
+			urls = append(urls, docURL)
+		}
+
+	case *tg.MessageMediaWebPage:
+		// Extract webpage URL if present
+		if webpage, ok := m.Webpage.(*tg.WebPage); ok {
+			if webpage.URL != "" {
+				urls = append(urls, webpage.URL)
+			}
+			// Also extract photo from webpage if present
+			if webpage.Photo != nil {
+				if photo, ok := webpage.Photo.(*tg.Photo); ok {
+					photoURL := fmt.Sprintf("photo://%d", photo.ID)
+					urls = append(urls, photoURL)
+				}
+			}
+			// Extract document from webpage if present
+			if webpage.Document != nil {
+				if doc, ok := webpage.Document.(*tg.Document); ok {
+					docURL := fmt.Sprintf("document://%d", doc.ID)
+					urls = append(urls, docURL)
+				}
+			}
+		}
+
+	case *tg.MessageMediaGeo:
+		// Extract geo location as URL
+		if m.Geo != nil {
+			if geoPoint, ok := m.Geo.(*tg.GeoPoint); ok {
+				geoURL := fmt.Sprintf("geo:%.6f,%.6f", geoPoint.Lat, geoPoint.Long)
+				urls = append(urls, geoURL)
+			}
+		}
+
+	case *tg.MessageMediaContact:
+		// Extract contact info as vCard-style URL
+		contactURL := fmt.Sprintf("contact://tel:%s", m.PhoneNumber)
+		urls = append(urls, contactURL)
+
+	case *tg.MessageMediaPoll:
+		// Polls don't have URLs, skip
+		c.logger.Debug().Msg("skipping poll media (no URL)")
+
+	default:
+		// Unknown media type
+		c.logger.Debug().Str("media_type", fmt.Sprintf("%T", m)).Msg("unknown media type")
+	}
+
+	return urls
 }
 
 // GetChannelInfo retrieves information about a channel
