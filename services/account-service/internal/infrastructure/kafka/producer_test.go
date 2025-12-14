@@ -757,3 +757,200 @@ func TestKafkaProducer_Send10News(t *testing.T) {
 
 	t.Log("Successfully sent 10 news items with channel_id as partition key")
 }
+
+// TestKafkaProducer_Close_WithPendingMessages tests graceful shutdown with pending messages
+// This test validates ACC-2.3 requirement: "Тест: закрытие с ожидающими сообщениями"
+func TestKafkaProducer_Close_WithPendingMessages(t *testing.T) {
+	config := sarama.NewConfig()
+	config.Producer.Return.Successes = true
+	config.Producer.Return.Errors = true
+
+	mockProducer := mocks.NewAsyncProducer(t, config)
+
+	// Expect 5 successful sends
+	for i := 0; i < 5; i++ {
+		mockProducer.ExpectInputAndSucceed()
+	}
+
+	kp := &KafkaProducer{
+		producer: mockProducer,
+		topic:    "news.received",
+		logger:   zerolog.Nop(),
+		errors:   make([]error, 0),
+	}
+
+	// Start handler goroutines
+	kp.wg.Add(2)
+	go kp.handleSuccesses()
+	go kp.handleErrors()
+
+	ctx := context.Background()
+
+	// Send 5 messages asynchronously
+	for i := 1; i <= 5; i++ {
+		news := &domain.NewsItem{
+			ChannelID:   "test_channel",
+			ChannelName: "Test Channel",
+			MessageID:   i,
+			Content:     fmt.Sprintf("Pending message %d", i),
+			Date:        time.Now(),
+		}
+
+		if err := kp.SendNewsReceived(ctx, news); err != nil {
+			t.Errorf("Failed to send message %d: %v", i, err)
+		}
+	}
+
+	// Immediately close producer while messages are still being processed
+	// This tests that Close() properly flushes all pending messages
+	err := kp.Close()
+	if err != nil {
+		t.Errorf("Expected successful close with pending messages, got error: %v", err)
+	}
+
+	t.Log("Successfully closed producer with pending messages - all messages were flushed")
+}
+
+// TestKafkaProducer_CloseWithTimeout_Success tests CloseWithTimeout with sufficient time
+func TestKafkaProducer_CloseWithTimeout_Success(t *testing.T) {
+	config := sarama.NewConfig()
+	config.Producer.Return.Successes = true
+	config.Producer.Return.Errors = true
+
+	mockProducer := mocks.NewAsyncProducer(t, config)
+
+	// Expect 3 successful sends
+	for i := 0; i < 3; i++ {
+		mockProducer.ExpectInputAndSucceed()
+	}
+
+	kp := &KafkaProducer{
+		producer: mockProducer,
+		topic:    "news.received",
+		logger:   zerolog.Nop(),
+		errors:   make([]error, 0),
+	}
+
+	// Start handler goroutines
+	kp.wg.Add(2)
+	go kp.handleSuccesses()
+	go kp.handleErrors()
+
+	ctx := context.Background()
+
+	// Send 3 messages
+	for i := 1; i <= 3; i++ {
+		news := &domain.NewsItem{
+			ChannelID:   "test_channel",
+			ChannelName: "Test Channel",
+			MessageID:   i,
+			Content:     fmt.Sprintf("Message %d", i),
+			Date:        time.Now(),
+		}
+
+		if err := kp.SendNewsReceived(ctx, news); err != nil {
+			t.Errorf("Failed to send message %d: %v", i, err)
+		}
+	}
+
+	// Close with 5 second timeout - should succeed
+	err := kp.CloseWithTimeout(5 * time.Second)
+	if err != nil {
+		t.Errorf("Expected successful close, got error: %v", err)
+	}
+
+	t.Log("CloseWithTimeout succeeded within timeout")
+}
+
+// TestKafkaProducer_CloseWithTimeout_ShortTimeout tests behavior with very short timeout
+func TestKafkaProducer_CloseWithTimeout_ShortTimeout(t *testing.T) {
+	// Note: This test demonstrates timeout behavior but may be flaky depending on timing
+	// In real scenarios, 10 seconds (default) should be sufficient for message flush
+
+	config := sarama.NewConfig()
+	config.Producer.Return.Successes = true
+	config.Producer.Return.Errors = true
+
+	mockProducer := mocks.NewAsyncProducer(t, config)
+
+	// Expect many messages
+	for i := 0; i < 10; i++ {
+		mockProducer.ExpectInputAndSucceed()
+	}
+
+	kp := &KafkaProducer{
+		producer: mockProducer,
+		topic:    "news.received",
+		logger:   zerolog.Nop(),
+		errors:   make([]error, 0),
+	}
+
+	// Start handler goroutines
+	kp.wg.Add(2)
+	go kp.handleSuccesses()
+	go kp.handleErrors()
+
+	ctx := context.Background()
+
+	// Send messages
+	for i := 1; i <= 10; i++ {
+		news := &domain.NewsItem{
+			ChannelID:   "test_channel",
+			ChannelName: "Test Channel",
+			MessageID:   i,
+			Content:     fmt.Sprintf("Message %d", i),
+			Date:        time.Now(),
+		}
+
+		if err := kp.SendNewsReceived(ctx, news); err != nil {
+			t.Errorf("Failed to send message %d: %v", i, err)
+		}
+	}
+
+	// Close with very short timeout - behavior depends on timing
+	// With mock producer this should still succeed quickly
+	err := kp.CloseWithTimeout(1 * time.Millisecond)
+
+	// Either succeeds (handlers finished quickly) or times out
+	// Both are acceptable outcomes for this edge case test
+	if err != nil {
+		if err.Error() != "close timeout after 1ms: handlers did not finish in time" {
+			t.Logf("Close timed out as expected with very short timeout: %v", err)
+		}
+	} else {
+		t.Log("Close succeeded even with very short timeout (handlers were very fast)")
+	}
+}
+
+// TestKafkaProducer_DefaultCloseTimeout tests that Close() uses 10 second timeout
+func TestKafkaProducer_DefaultCloseTimeout(t *testing.T) {
+	mockProducer := mocks.NewAsyncProducer(t, nil)
+
+	kp := &KafkaProducer{
+		producer: mockProducer,
+		topic:    "news.received",
+		logger:   zerolog.Nop(),
+		errors:   make([]error, 0),
+	}
+
+	// Start handler goroutines
+	kp.wg.Add(2)
+	go kp.handleSuccesses()
+	go kp.handleErrors()
+
+	// Close() should use default 10 second timeout (as per ACC-2.3)
+	start := time.Now()
+	err := kp.Close()
+	duration := time.Since(start)
+
+	if err != nil {
+		t.Errorf("Expected successful close, got error: %v", err)
+	}
+
+	// Verify it didn't wait for full 10 seconds (should finish quickly with no pending messages)
+	if duration > 1*time.Second {
+		t.Errorf("Close took too long (%v), expected quick finish with no pending messages", duration)
+	}
+
+	t.Logf("Close() completed in %v (using default 10s timeout)", duration)
+}

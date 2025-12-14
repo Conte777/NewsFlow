@@ -5,11 +5,18 @@ import (
 	"encoding/json"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/IBM/sarama"
 	"github.com/rs/zerolog"
 
 	"github.com/YarosTrubechkoi/telegram-news-feed/account-service/internal/domain"
+)
+
+const (
+	// maxStoredErrors is the maximum number of errors to keep in memory
+	// This prevents unbounded memory growth during long-running operations
+	maxStoredErrors = 100
 )
 
 // ErrorCallback is called when a message fails to send
@@ -212,9 +219,17 @@ func (p *KafkaProducer) handleErrors() {
 			Interface("key", producerErr.Msg.Key).
 			Msg("Failed to send message to Kafka")
 
-		// Collect all errors for Close() method
+		// Collect errors for Close() method (with size limit to prevent memory leak)
 		p.errorsMu.Lock()
-		p.errors = append(p.errors, producerErr.Err)
+		if len(p.errors) < maxStoredErrors {
+			p.errors = append(p.errors, producerErr.Err)
+		} else if len(p.errors) == maxStoredErrors {
+			// Log warning only once when limit is reached
+			p.logger.Warn().
+				Int("max_errors", maxStoredErrors).
+				Msg("Maximum stored errors limit reached, subsequent errors will be dropped")
+			p.errors = append(p.errors, fmt.Errorf("max errors limit reached, subsequent errors dropped"))
+		}
 		p.errorsMu.Unlock()
 
 		// Call error callback if configured
@@ -234,31 +249,70 @@ func (p *KafkaProducer) handleErrors() {
 	p.logger.Info().Msg("Error handler stopped")
 }
 
-// Close gracefully shuts down the Kafka producer
+// Close gracefully shuts down the Kafka producer with a default 10-second timeout
 //
 // The method:
 // 1. Closes the producer (stops accepting new messages)
-// 2. Waits for all pending messages to be sent
+// 2. Waits for all pending messages to be sent (with timeout)
 // 3. Waits for handler goroutines to finish
 // 4. Returns any errors that occurred during message delivery
 //
 // Close is idempotent - can be called multiple times safely.
+// Uses a default timeout of 10 seconds as specified in ACC-2.3.
 func (p *KafkaProducer) Close() error {
-	var result error
+	return p.CloseWithTimeout(10 * time.Second)
+}
 
+// CloseWithTimeout gracefully shuts down the Kafka producer with a custom timeout
+//
+// This method allows specifying a custom timeout for waiting for pending messages to be flushed.
+// If the timeout is reached before all messages are processed, it returns an error.
+//
+// Parameters:
+//   - timeout: Maximum time to wait for pending messages to be flushed and handlers to finish
+//
+// Returns:
+//   - error if producer close fails, timeout occurs, or errors occurred during operation
+func (p *KafkaProducer) CloseWithTimeout(timeout time.Duration) error {
 	p.closeOnce.Do(func() {
-		p.logger.Info().Msg("Closing Kafka producer")
+		p.logger.Info().
+			Dur("timeout", timeout).
+			Msg("Closing Kafka producer")
+
+		var errs []error
 
 		// Close producer - this will close Input, Successes, and Errors channels
+		// The producer will flush all pending messages before closing
 		if err := p.producer.Close(); err != nil {
 			p.logger.Error().Err(err).Msg("Error closing Kafka producer")
-			result = fmt.Errorf("failed to close producer: %w", err)
-			return
+			errs = append(errs, fmt.Errorf("producer close failed: %w", err))
 		}
 
 		// Wait for handler goroutines to finish processing remaining messages
-		p.wg.Wait()
+		// Use a channel to implement timeout on wg.Wait()
+		done := make(chan struct{})
+		go func() {
+			p.wg.Wait()
+			close(done)
+		}()
 
+		// Wait with timeout
+		select {
+		case <-done:
+			// All handlers finished successfully
+			p.logger.Debug().Msg("All handler goroutines finished")
+
+		case <-time.After(timeout):
+			// Timeout reached - handlers didn't finish in time
+			// Note: The goroutine with wg.Wait() will eventually finish when handlers complete,
+			// as producer.Close() closes the channels they're reading from
+			p.logger.Error().
+				Dur("timeout", timeout).
+				Msg("Timeout waiting for handlers to finish")
+			errs = append(errs, fmt.Errorf("close timeout after %s: handlers did not finish in time", timeout))
+		}
+
+		// Check if any errors occurred during operation
 		p.errorsMu.Lock()
 		errorCount := len(p.errors)
 		p.errorsMu.Unlock()
@@ -267,12 +321,26 @@ func (p *KafkaProducer) Close() error {
 			p.logger.Warn().
 				Int("error_count", errorCount).
 				Msg("Kafka producer closed with errors")
-			result = fmt.Errorf("producer had %d errors during operation", errorCount)
-			return
+			errs = append(errs, fmt.Errorf("producer had %d send errors during operation", errorCount))
 		}
 
-		p.logger.Info().Msg("Kafka producer closed successfully")
+		// Combine all errors
+		if len(errs) > 0 {
+			if len(errs) == 1 {
+				p.closeErr = errs[0]
+			} else {
+				// Multiple errors - combine them
+				errMsg := "multiple errors during close:"
+				for i, err := range errs {
+					errMsg += fmt.Sprintf(" [%d] %v;", i+1, err)
+				}
+				p.closeErr = fmt.Errorf("%s", errMsg)
+			}
+			p.logger.Error().Err(p.closeErr).Msg("Kafka producer closed with errors")
+		} else {
+			p.logger.Info().Msg("Kafka producer closed successfully")
+		}
 	})
 
-	return result
+	return p.closeErr
 }
