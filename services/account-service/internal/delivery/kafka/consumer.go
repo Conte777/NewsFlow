@@ -21,6 +21,9 @@ const (
 	// Topics for subscription events
 	topicSubscriptionCreated = "subscriptions.created"
 	topicSubscriptionDeleted = "subscriptions.deleted"
+
+	// defaultCloseTimeout is the default timeout for closing the consumer
+	defaultCloseTimeout = 10 * time.Second
 )
 
 var (
@@ -203,18 +206,53 @@ func (kc *KafkaConsumer) ConsumeSubscriptionEvents(ctx context.Context, handler 
 	}
 }
 
-// Close gracefully shuts down the Kafka consumer
+// Close gracefully shuts down the Kafka consumer with a timeout
+//
+// This method ensures:
+// - Consumer goroutines are stopped gracefully
+// - Final offset commit is completed
+// - Resources are released properly
+// - Timeout of 10 seconds is enforced (ACC-2.6)
+//
+// If the consumer doesn't close within the timeout, an error is returned.
 func (kc *KafkaConsumer) Close() error {
 	kc.closeOnce.Do(func() {
 		kc.logger.Info().Msg("Closing Kafka consumer")
 
-		if err := kc.consumerGroup.Close(); err != nil {
-			kc.logger.Error().Err(err).Msg("Error closing consumer group")
-			kc.closeErr = fmt.Errorf("failed to close consumer group: %w", err)
-			return
-		}
+		// Create a channel to signal completion
+		done := make(chan error, 1)
 
-		kc.logger.Info().Msg("Kafka consumer closed successfully")
+		// Close consumer group in a separate goroutine
+		go func() {
+			// Close the consumer group
+			// This will:
+			// 1. Stop consuming new messages
+			// 2. Complete processing current messages
+			// 3. Commit final offsets
+			// 4. Leave the consumer group
+			if err := kc.consumerGroup.Close(); err != nil {
+				done <- fmt.Errorf("failed to close consumer group: %w", err)
+				return
+			}
+			done <- nil
+		}()
+
+		// Wait for close to complete or timeout
+		select {
+		case err := <-done:
+			if err != nil {
+				kc.logger.Error().Err(err).Msg("Error closing consumer group")
+				kc.closeErr = err
+				return
+			}
+			kc.logger.Info().Msg("Kafka consumer closed successfully")
+
+		case <-time.After(defaultCloseTimeout):
+			kc.logger.Error().
+				Dur("timeout", defaultCloseTimeout).
+				Msg("Timeout while closing consumer group")
+			kc.closeErr = fmt.Errorf("close timeout after %v", defaultCloseTimeout)
+		}
 	})
 
 	return kc.closeErr

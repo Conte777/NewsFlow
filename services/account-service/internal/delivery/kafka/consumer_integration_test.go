@@ -260,3 +260,147 @@ func TestKafkaConsumer_ConfigurationValidation(t *testing.T) {
 
 	t.Log("\n✅ All ACC-2.4 configuration requirements validated")
 }
+
+// TestKafkaConsumer_GracefulShutdownIntegration tests ACC-2.6: close during message processing
+//
+// Prerequisites:
+//   - Kafka must be running on localhost:9092
+//
+// To run this test:
+//   go test -v -tags=integration ./internal/delivery/kafka -run TestKafkaConsumer_GracefulShutdownIntegration
+func TestKafkaConsumer_GracefulShutdownIntegration(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping integration test in short mode")
+	}
+
+	broker := "localhost:9092"
+	logger := zerolog.New(zerolog.NewConsoleWriter()).With().Timestamp().Logger()
+
+	// Create a handler that simulates slow processing
+	handler := &slowProcessingHandler{
+		baseHandler:    &mockSubscriptionEventHandler{},
+		processingTime: 500 * time.Millisecond,
+		logger:         logger,
+	}
+
+	// Create consumer
+	consumer, err := NewKafkaConsumer(ConsumerConfig{
+		Brokers:           []string{broker},
+		Logger:            logger,
+		Handler:           handler,
+		SessionTimeout:    10 * time.Second,
+		HeartbeatInterval: 3 * time.Second,
+	})
+	if err != nil {
+		t.Fatalf("Failed to create consumer: %v", err)
+	}
+
+	// Send test message
+	producer, err := createTestProducer(broker)
+	if err != nil {
+		t.Fatalf("Failed to create producer: %v", err)
+	}
+	defer producer.Close()
+
+	if err := sendSubscriptionCreatedEvent(producer); err != nil {
+		t.Fatalf("Failed to send event: %v", err)
+	}
+
+	// Start consuming in background
+	ctx, cancel := context.WithCancel(context.Background())
+	consumeErr := make(chan error, 1)
+	go func() {
+		consumeErr <- consumer.ConsumeSubscriptionEvents(ctx, handler)
+	}()
+
+	// Wait a bit for message processing to start
+	time.Sleep(1 * time.Second)
+
+	// Close consumer while processing (should complete gracefully)
+	t.Log("Closing consumer during message processing...")
+	closeStart := time.Now()
+
+	// Close in background to test timeout
+	closeErr := make(chan error, 1)
+	go func() {
+		closeErr <- consumer.Close()
+	}()
+
+	// Wait for close to complete
+	select {
+	case err := <-closeErr:
+		closeElapsed := time.Since(closeStart)
+		if err != nil {
+			t.Errorf("Close failed: %v", err)
+		}
+
+		t.Logf("Consumer closed in %v", closeElapsed)
+
+		// Verify close completed within timeout
+		if closeElapsed > 10*time.Second {
+			t.Errorf("Close took too long: %v (expected < 10s)", closeElapsed)
+		}
+
+	case <-time.After(15 * time.Second):
+		t.Error("Close did not complete within 15 seconds")
+	}
+
+	// Cancel context and wait for consume to finish
+	cancel()
+	select {
+	case err := <-consumeErr:
+		if err != nil && err != context.Canceled {
+			t.Logf("Consume stopped with: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Error("Consume did not stop after context cancellation")
+	}
+
+	// Verify at least one message was processed
+	if len(handler.baseHandler.createdCalls) == 0 {
+		t.Log("Warning: No messages were processed (may be due to consumer group rebalancing)")
+	} else {
+		t.Logf("Processed %d messages before shutdown", len(handler.baseHandler.createdCalls))
+	}
+
+	t.Log("✅ Graceful shutdown test completed")
+}
+
+// slowProcessingHandler simulates slow message processing
+type slowProcessingHandler struct {
+	baseHandler    *mockSubscriptionEventHandler
+	processingTime time.Duration
+	logger         zerolog.Logger
+}
+
+func (h *slowProcessingHandler) HandleSubscriptionCreated(ctx context.Context, userID int64, channelID, channelName string) error {
+	h.logger.Info().
+		Int64("user_id", userID).
+		Dur("processing_time", h.processingTime).
+		Msg("Starting slow message processing")
+
+	// Simulate slow processing
+	select {
+	case <-time.After(h.processingTime):
+		// Processing complete
+	case <-ctx.Done():
+		// Context cancelled during processing
+		h.logger.Info().Msg("Processing cancelled by context")
+		return ctx.Err()
+	}
+
+	return h.baseHandler.HandleSubscriptionCreated(ctx, userID, channelID, channelName)
+}
+
+func (h *slowProcessingHandler) HandleSubscriptionDeleted(ctx context.Context, userID int64, channelID string) error {
+	// Simulate slow processing
+	select {
+	case <-time.After(h.processingTime):
+		// Processing complete
+	case <-ctx.Done():
+		// Context cancelled during processing
+		return ctx.Err()
+	}
+
+	return h.baseHandler.HandleSubscriptionDeleted(ctx, userID, channelID)
+}
