@@ -2,6 +2,8 @@ package kafka
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"testing"
 	"time"
 
@@ -637,4 +639,121 @@ func TestKafkaProducer_ErrorHandling_MultipleErrors(t *testing.T) {
 	if errorCount != 3 {
 		t.Errorf("Expected 3 errors collected, got %d", errorCount)
 	}
+}
+
+// TestNewsItem_JSONSerialization tests that NewsItem serializes correctly
+// to the expected JSON format according to ACC-2.2 specification
+func TestNewsItem_JSONSerialization(t *testing.T) {
+	news := &domain.NewsItem{
+		ChannelID:   "channel_001",
+		ChannelName: "Tech News",
+		MessageID:   12345,
+		Content:     "New technology breakthrough announced",
+		MediaURLs: []string{
+			"https://example.com/photo1.jpg",
+			"https://example.com/photo2.jpg",
+		},
+		Date: time.Date(2025, 11, 24, 10, 30, 0, 0, time.UTC),
+	}
+
+	// Marshal to JSON
+	jsonData, err := json.Marshal(news)
+	if err != nil {
+		t.Fatalf("Failed to marshal NewsItem: %v", err)
+	}
+
+	// Expected JSON format according to ACC-2.2:
+	// {
+	//   "channel_id": "string",
+	//   "channel_name": "string",
+	//   "message_id": "int",
+	//   "content": "string",
+	//   "media_urls": ["url1", "url2"],
+	//   "date": "2025-11-24T10:30:00Z"
+	// }
+
+	expectedJSON := `{"channel_id":"channel_001","channel_name":"Tech News","message_id":12345,"content":"New technology breakthrough announced","media_urls":["https://example.com/photo1.jpg","https://example.com/photo2.jpg"],"date":"2025-11-24T10:30:00Z"}`
+
+	if string(jsonData) != expectedJSON {
+		t.Errorf("JSON format mismatch.\nGot:      %s\nExpected: %s", string(jsonData), expectedJSON)
+	}
+
+	// Verify we can deserialize back
+	var deserialized domain.NewsItem
+	if err := json.Unmarshal(jsonData, &deserialized); err != nil {
+		t.Fatalf("Failed to deserialize: %v", err)
+	}
+
+	// Verify data integrity
+	if deserialized.ChannelID != news.ChannelID {
+		t.Errorf("ChannelID mismatch: got %s, want %s", deserialized.ChannelID, news.ChannelID)
+	}
+	if deserialized.ChannelName != news.ChannelName {
+		t.Errorf("ChannelName mismatch: got %s, want %s", deserialized.ChannelName, news.ChannelName)
+	}
+	if deserialized.MessageID != news.MessageID {
+		t.Errorf("MessageID mismatch: got %d, want %d", deserialized.MessageID, news.MessageID)
+	}
+	if deserialized.Content != news.Content {
+		t.Errorf("Content mismatch: got %s, want %s", deserialized.Content, news.Content)
+	}
+	if len(deserialized.MediaURLs) != len(news.MediaURLs) {
+		t.Errorf("MediaURLs length mismatch: got %d, want %d", len(deserialized.MediaURLs), len(news.MediaURLs))
+	}
+	if !deserialized.Date.Equal(news.Date) {
+		t.Errorf("Date mismatch: got %v, want %v", deserialized.Date, news.Date)
+	}
+
+	t.Logf("JSON serialization test passed. Format matches ACC-2.2 specification")
+}
+
+// TestKafkaProducer_Send10News tests sending 10 news items
+// This is a unit test using mocks (for integration test, see producer_integration_test.go)
+func TestKafkaProducer_Send10News(t *testing.T) {
+	mockProducer := mocks.NewAsyncProducer(t, nil)
+
+	// Expect 10 successful sends
+	for i := 0; i < 10; i++ {
+		mockProducer.ExpectInputAndSucceed()
+	}
+
+	kp := &KafkaProducer{
+		producer: mockProducer,
+		topic:    "news.received",
+		logger:   zerolog.Nop(),
+		errors:   make([]error, 0),
+	}
+
+	// Start handler goroutines
+	kp.wg.Add(2)
+	go kp.handleSuccesses()
+	go kp.handleErrors()
+
+	ctx := context.Background()
+
+	// Send 10 news items
+	for i := 1; i <= 10; i++ {
+		news := &domain.NewsItem{
+			ChannelID:   "test_channel",
+			ChannelName: "Test Channel",
+			MessageID:   i,
+			Content:     fmt.Sprintf("Test news item %d", i),
+			MediaURLs:   []string{"https://example.com/image.jpg"},
+			Date:        time.Now(),
+		}
+
+		if err := kp.SendNewsReceived(ctx, news); err != nil {
+			t.Errorf("Failed to send news item %d: %v", i, err)
+		}
+	}
+
+	// Give time for processing
+	time.Sleep(100 * time.Millisecond)
+
+	// Close producer
+	if err := kp.Close(); err != nil {
+		t.Errorf("Failed to close producer: %v", err)
+	}
+
+	t.Log("Successfully sent 10 news items with channel_id as partition key")
 }

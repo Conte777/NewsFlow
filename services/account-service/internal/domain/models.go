@@ -20,13 +20,14 @@ type ChannelSubscription struct {
 }
 
 // NewsItem represents a news message from a channel
+// JSON tags are added to match the event format specification (ACC-2.2)
 type NewsItem struct {
-	ChannelID   string
-	ChannelName string
-	MessageID   int
-	Content     string
-	MediaURLs   []string
-	Date        time.Time
+	ChannelID   string    `json:"channel_id"`
+	ChannelName string    `json:"channel_name"`
+	MessageID   int       `json:"message_id"`
+	Content     string    `json:"content"`
+	MediaURLs   []string  `json:"media_urls"`
+	Date        time.Time `json:"date"`
 }
 
 // SubscriptionEvent represents a subscription event from subscription service
