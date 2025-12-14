@@ -3,6 +3,7 @@ package kafka
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -20,6 +21,14 @@ const (
 	// Topics for subscription events
 	topicSubscriptionCreated = "subscriptions.created"
 	topicSubscriptionDeleted = "subscriptions.deleted"
+)
+
+var (
+	// ErrInvalidMessage indicates message cannot be processed (permanent error)
+	ErrInvalidMessage = errors.New("invalid message format")
+
+	// ErrUnknownTopic indicates unknown topic (permanent error)
+	ErrUnknownTopic = errors.New("unknown topic")
 )
 
 // KafkaConsumer consumes subscription events from Kafka
@@ -70,7 +79,9 @@ func NewKafkaConsumer(cfg ConsumerConfig) (domain.KafkaConsumer, error) {
 
 	// Consumer group configuration
 	config.Consumer.Group.Rebalance.Strategy = sarama.NewBalanceStrategyRoundRobin()
-	config.Consumer.Offsets.Initial = sarama.OffsetNewest
+	// Use OffsetOldest to ensure all messages are processed from the beginning
+	// when consumer group starts for the first time
+	config.Consumer.Offsets.Initial = sarama.OffsetOldest
 
 	// Session configuration (ACC-2.4)
 	config.Consumer.Group.Session.Timeout = cfg.SessionTimeout
@@ -122,9 +133,14 @@ func NewKafkaConsumer(cfg ConsumerConfig) (domain.KafkaConsumer, error) {
 //
 // This method blocks until the context is cancelled or an error occurs.
 // It processes messages from subscriptions.created and subscriptions.deleted topics.
+//
+// The handler is set during consumer creation and cannot be changed during runtime
+// to avoid race conditions.
 func (kc *KafkaConsumer) ConsumeSubscriptionEvents(ctx context.Context, handler domain.SubscriptionEventHandler) error {
-	if handler != nil {
-		kc.handler = handler
+	// Note: handler parameter is kept for interface compatibility but ignored
+	// to prevent race conditions. Use handler from constructor instead.
+	if handler != nil && kc.handler == nil {
+		return fmt.Errorf("handler should be set in constructor, not at runtime")
 	}
 
 	if kc.handler == nil {
@@ -251,16 +267,32 @@ func (h *consumerGroupHandler) ConsumeClaim(session sarama.ConsumerGroupSession,
 
 			// Process message
 			if err := h.processMessage(ctx, msg); err != nil {
+				// Check if error is retryable or permanent
+				if isRetryableError(err) {
+					// Retryable error (e.g., temporary DB connection issue, timeout)
+					// Don't commit offset - message will be reprocessed
+					h.logger.Warn().
+						Err(err).
+						Str("topic", msg.Topic).
+						Int32("partition", msg.Partition).
+						Int64("offset", msg.Offset).
+						Msg("Retryable error - message will be reprocessed")
+
+					// Don't mark the message - it will be retried
+					// Return to allow session to rebalance if needed
+					continue
+				}
+
+				// Permanent error (e.g., invalid JSON, unknown topic)
+				// Skip this message by committing offset to avoid getting stuck
 				h.logger.Error().
 					Err(err).
 					Str("topic", msg.Topic).
 					Int32("partition", msg.Partition).
 					Int64("offset", msg.Offset).
-					Msg("Failed to process message - SKIPPING (message will be committed)")
+					Msg("Permanent error - SKIPPING message (will be committed)")
 
-				// Commit offset even on error to avoid getting stuck on bad messages
-				// This is "best-effort" approach - failed messages are logged but skipped
-				// For production, consider sending to DLQ (Dead Letter Queue)
+				// TODO: Send to Dead Letter Queue (DLQ) for permanent errors
 				session.MarkMessage(msg, "")
 				continue
 			}
@@ -279,10 +311,18 @@ func (h *consumerGroupHandler) ConsumeClaim(session sarama.ConsumerGroupSession,
 
 // processMessage processes a single Kafka message
 func (h *consumerGroupHandler) processMessage(ctx context.Context, msg *sarama.ConsumerMessage) error {
+	// Check if context is cancelled before processing
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+	}
+
 	// Parse subscription event
 	var event domain.SubscriptionEvent
 	if err := json.Unmarshal(msg.Value, &event); err != nil {
-		return fmt.Errorf("failed to unmarshal subscription event: %w", err)
+		// Invalid JSON is a permanent error
+		return fmt.Errorf("%w: %v", ErrInvalidMessage, err)
 	}
 
 	h.logger.Debug().
@@ -291,15 +331,59 @@ func (h *consumerGroupHandler) processMessage(ctx context.Context, msg *sarama.C
 		Str("channel_id", event.ChannelID).
 		Msg("Processing subscription event")
 
+	// Check context again before calling handler
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+	}
+
 	// Route to appropriate handler based on topic
 	switch msg.Topic {
 	case topicSubscriptionCreated:
-		return h.handler.HandleSubscriptionCreated(ctx, event.UserID, event.ChannelID, event.ChannelName)
+		if err := h.handler.HandleSubscriptionCreated(ctx, event.UserID, event.ChannelID, event.ChannelName); err != nil {
+			return err
+		}
+		return nil
 
 	case topicSubscriptionDeleted:
-		return h.handler.HandleSubscriptionDeleted(ctx, event.UserID, event.ChannelID)
+		if err := h.handler.HandleSubscriptionDeleted(ctx, event.UserID, event.ChannelID); err != nil {
+			return err
+		}
+		return nil
 
 	default:
-		return fmt.Errorf("unknown topic: %s", msg.Topic)
+		// Unknown topic is a permanent error
+		return fmt.Errorf("%w: %s", ErrUnknownTopic, msg.Topic)
 	}
+}
+
+// isRetryableError determines if an error is retryable or permanent
+//
+// Retryable errors:
+// - Context cancelled/deadline exceeded (system shutting down)
+// - Any error from handler (could be temporary DB issues, network timeouts, etc.)
+//
+// Permanent errors:
+// - Invalid message format (ErrInvalidMessage)
+// - Unknown topic (ErrUnknownTopic)
+func isRetryableError(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	// Context errors are retryable (system is shutting down gracefully)
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return true
+	}
+
+	// Permanent errors - don't retry
+	if errors.Is(err, ErrInvalidMessage) || errors.Is(err, ErrUnknownTopic) {
+		return false
+	}
+
+	// All other errors from handler are considered retryable by default
+	// This is a conservative approach - better to retry than lose data
+	// Handler can wrap errors with ErrInvalidMessage if they want to skip
+	return true
 }
