@@ -46,6 +46,30 @@ type ProducerConfig struct {
 	MaxRetries      int            // Max retries for failed sends (default: 5)
 }
 
+// ValidateBrokers checks if Kafka brokers are accessible
+// Returns error if cannot connect to any broker
+func ValidateBrokers(brokers []string) error {
+	if len(brokers) == 0 {
+		return fmt.Errorf("no brokers specified")
+	}
+
+	config := sarama.NewConfig()
+	config.Version = sarama.V2_6_0_0
+
+	client, err := sarama.NewClient(brokers, config)
+	if err != nil {
+		return fmt.Errorf("failed to connect to Kafka brokers: %w", err)
+	}
+	defer client.Close()
+
+	// Check if we can communicate with brokers
+	if err := client.RefreshMetadata(); err != nil {
+		return fmt.Errorf("failed to refresh metadata from Kafka: %w", err)
+	}
+
+	return nil
+}
+
 // NewKafkaProducer creates a new Kafka producer with async producer configuration
 //
 // Configuration highlights:
@@ -82,6 +106,7 @@ func NewKafkaProducer(cfg ProducerConfig) (domain.KafkaProducer, error) {
 	// Note: This is NOT exactly-once semantics, which requires transactions
 	config.Producer.Idempotent = true
 	config.Producer.RequiredAcks = sarama.WaitForAll // Required for idempotent producer
+	config.Net.MaxOpenRequests = 1                   // Required for idempotent producer
 	config.Producer.MaxMessageBytes = cfg.MaxMessageBytes
 	config.Producer.Retry.Max = cfg.MaxRetries
 
