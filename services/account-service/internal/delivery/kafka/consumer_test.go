@@ -3,6 +3,9 @@ package kafka
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -47,6 +50,55 @@ func (m *mockSubscriptionEventHandler) HandleSubscriptionDeleted(ctx context.Con
 	})
 	return m.deleteErr
 }
+
+// mockConsumerGroup is a mock implementation of sarama.ConsumerGroup for testing
+type mockConsumerGroup struct {
+	closeFunc    func() error
+	closeCalls   int
+	closeMu      sync.Mutex
+	consumeFunc  func(ctx context.Context, topics []string, handler sarama.ConsumerGroupHandler) error
+	errorsFunc   func() <-chan error
+	closeChannel chan struct{}
+}
+
+func (m *mockConsumerGroup) Consume(ctx context.Context, topics []string, handler sarama.ConsumerGroupHandler) error {
+	if m.consumeFunc != nil {
+		return m.consumeFunc(ctx, topics, handler)
+	}
+	return nil
+}
+
+func (m *mockConsumerGroup) Errors() <-chan error {
+	if m.errorsFunc != nil {
+		return m.errorsFunc()
+	}
+	ch := make(chan error)
+	close(ch)
+	return ch
+}
+
+func (m *mockConsumerGroup) Close() error {
+	m.closeMu.Lock()
+	m.closeCalls++
+	m.closeMu.Unlock()
+
+	if m.closeFunc != nil {
+		return m.closeFunc()
+	}
+
+	if m.closeChannel != nil {
+		close(m.closeChannel)
+	}
+	return nil
+}
+
+func (m *mockConsumerGroup) Pause(partitions map[string][]int32) {}
+
+func (m *mockConsumerGroup) Resume(partitions map[string][]int32) {}
+
+func (m *mockConsumerGroup) PauseAll() {}
+
+func (m *mockConsumerGroup) ResumeAll() {}
 
 // TestNewKafkaConsumer_Success tests successful consumer creation
 func TestNewKafkaConsumer_Success(t *testing.T) {
@@ -382,28 +434,182 @@ func TestKafkaConsumer_CloseTimeout(t *testing.T) {
 	t.Logf("Close timeout correctly set to: %v", defaultCloseTimeout)
 }
 
-// TestKafkaConsumer_Close tests graceful shutdown
+// TestKafkaConsumer_Close tests graceful shutdown with real mocks
 func TestKafkaConsumer_Close(t *testing.T) {
 	t.Run("CloseIdempotent", func(t *testing.T) {
 		// Test that Close() can be called multiple times safely
-		// Note: Can't create real consumer without Kafka broker
-		// This test validates the Close() logic structure
+		mockCG := &mockConsumerGroup{
+			closeFunc: func() error {
+				time.Sleep(100 * time.Millisecond)
+				return nil
+			},
+		}
 
-		// Verify that calling Close() multiple times is safe (sync.Once)
-		// In real scenario, closeOnce ensures Close() body runs only once
-		t.Log("Close() uses sync.Once for idempotent shutdown")
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		kc := &KafkaConsumer{
+			consumerGroup: mockCG,
+			logger:        zerolog.Nop(),
+			ctx:           ctx,
+			cancelFunc:    cancel,
+		}
+
+		// Call Close() multiple times concurrently
+		var wg sync.WaitGroup
+		results := make([]error, 5)
+
+		for i := 0; i < 5; i++ {
+			wg.Add(1)
+			go func(idx int) {
+				defer wg.Done()
+				results[idx] = kc.Close()
+			}(i)
+		}
+
+		wg.Wait()
+
+		// All calls should succeed (return nil)
+		for i, err := range results {
+			if err != nil {
+				t.Errorf("Call %d returned error: %v", i, err)
+			}
+		}
+
+		// Consumer group Close() should be called exactly once
+		mockCG.closeMu.Lock()
+		closeCalls := mockCG.closeCalls
+		mockCG.closeMu.Unlock()
+
+		if closeCalls != 1 {
+			t.Errorf("Expected Close() to be called once, got %d", closeCalls)
+		}
+
+		// Verify IsClosed() returns true
+		if !kc.IsClosed() {
+			t.Error("Expected IsClosed() to return true")
+		}
 	})
 
 	t.Run("CloseTimeout", func(t *testing.T) {
-		// Test that Close() respects timeout
-		// In real implementation, Close() should return error after 10 seconds
-
-		timeout := 10 * time.Second
-		if defaultCloseTimeout != timeout {
-			t.Errorf("Expected timeout %v, got %v", timeout, defaultCloseTimeout)
+		// Test that Close() returns error after timeout
+		mockCG := &mockConsumerGroup{
+			closeFunc: func() error {
+				// Simulate hanging close (15 seconds)
+				time.Sleep(15 * time.Second)
+				return nil
+			},
 		}
 
-		t.Logf("Close() enforces %v timeout", timeout)
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		kc := &KafkaConsumer{
+			consumerGroup: mockCG,
+			logger:        zerolog.Nop(),
+			ctx:           ctx,
+			cancelFunc:    cancel,
+		}
+
+		start := time.Now()
+		err := kc.Close()
+		elapsed := time.Since(start)
+
+		// Should return timeout error
+		if err == nil {
+			t.Error("Expected timeout error, got nil")
+		}
+
+		// Should timeout around 10 seconds (with some margin)
+		if elapsed < 9*time.Second || elapsed > 11*time.Second {
+			t.Errorf("Expected ~10s timeout, got %v", elapsed)
+		}
+
+		// Consumer should still be marked as closed
+		if !kc.IsClosed() {
+			t.Error("Expected IsClosed() to return true even after timeout")
+		}
+	})
+
+	t.Run("CloseSuccess", func(t *testing.T) {
+		// Test successful close
+		mockCG := &mockConsumerGroup{
+			closeFunc: func() error {
+				time.Sleep(100 * time.Millisecond)
+				return nil
+			},
+		}
+
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		kc := &KafkaConsumer{
+			consumerGroup: mockCG,
+			logger:        zerolog.Nop(),
+			ctx:           ctx,
+			cancelFunc:    cancel,
+		}
+
+		err := kc.Close()
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+
+		if !kc.IsClosed() {
+			t.Error("Expected IsClosed() to return true")
+		}
+	})
+
+	t.Run("CloseWithError", func(t *testing.T) {
+		// Test close with error from consumer group
+		expectedErr := fmt.Errorf("mock close error")
+		mockCG := &mockConsumerGroup{
+			closeFunc: func() error {
+				return expectedErr
+			},
+		}
+
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		kc := &KafkaConsumer{
+			consumerGroup: mockCG,
+			logger:        zerolog.Nop(),
+			ctx:           ctx,
+			cancelFunc:    cancel,
+		}
+
+		err := kc.Close()
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+
+		// Error should be wrapped
+		if !strings.Contains(err.Error(), "failed to close consumer group") {
+			t.Errorf("Expected wrapped error, got: %v", err)
+		}
+	})
+
+	t.Run("CloseUninitializedConsumerGroup", func(t *testing.T) {
+		// Test closing consumer with nil consumer group
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		kc := &KafkaConsumer{
+			consumerGroup: nil,
+			logger:        zerolog.Nop(),
+			ctx:           ctx,
+			cancelFunc:    cancel,
+		}
+
+		err := kc.Close()
+		if err == nil {
+			t.Error("Expected error for uninitialized consumer group, got nil")
+		}
+
+		if !strings.Contains(err.Error(), "not initialized") {
+			t.Errorf("Expected 'not initialized' error, got: %v", err)
+		}
 	})
 }
 

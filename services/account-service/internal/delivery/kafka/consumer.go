@@ -40,8 +40,16 @@ type KafkaConsumer struct {
 	topics        []string
 	logger        zerolog.Logger
 	handler       domain.SubscriptionEventHandler
-	closeOnce     sync.Once
-	closeErr      error
+
+	// Close-related fields
+	closeOnce sync.Once
+	closeErr  error
+	closeMu   sync.RWMutex // Protects closeErr from race conditions
+	closed    bool         // Indicates if consumer is closed
+
+	// Context management for graceful shutdown
+	ctx        context.Context
+	cancelFunc context.CancelFunc
 }
 
 // ConsumerConfig holds configuration for Kafka consumer
@@ -114,11 +122,16 @@ func NewKafkaConsumer(cfg ConsumerConfig) (domain.KafkaConsumer, error) {
 
 	topics := []string{topicSubscriptionCreated, topicSubscriptionDeleted}
 
+	// Create internal context for lifecycle management
+	ctx, cancel := context.WithCancel(context.Background())
+
 	kc := &KafkaConsumer{
 		consumerGroup: consumerGroup,
 		topics:        topics,
 		logger:        cfg.Logger,
 		handler:       cfg.Handler,
+		ctx:           ctx,
+		cancelFunc:    cancel,
 	}
 
 	cfg.Logger.Info().
@@ -215,11 +228,25 @@ func (kc *KafkaConsumer) ConsumeSubscriptionEvents(ctx context.Context, handler 
 // - Timeout of 10 seconds is enforced (ACC-2.6)
 //
 // If the consumer doesn't close within the timeout, an error is returned.
+// This method is idempotent and thread-safe.
 func (kc *KafkaConsumer) Close() error {
 	kc.closeOnce.Do(func() {
 		kc.logger.Info().Msg("Closing Kafka consumer")
 
-		// Create a channel to signal completion
+		// Check if consumer group is initialized
+		if kc.consumerGroup == nil {
+			kc.logger.Warn().Msg("Consumer group not initialized")
+			kc.setCloseError(fmt.Errorf("consumer group not initialized"))
+			return
+		}
+
+		// Step 1: Cancel internal context to signal ConsumeSubscriptionEvents to stop
+		if kc.cancelFunc != nil {
+			kc.logger.Debug().Msg("Cancelling internal context")
+			kc.cancelFunc()
+		}
+
+		// Step 2: Close consumer group with timeout
 		done := make(chan error, 1)
 
 		// Close consumer group in a separate goroutine
@@ -230,11 +257,20 @@ func (kc *KafkaConsumer) Close() error {
 			// 2. Complete processing current messages
 			// 3. Commit final offsets
 			// 4. Leave the consumer group
-			if err := kc.consumerGroup.Close(); err != nil {
-				done <- fmt.Errorf("failed to close consumer group: %w", err)
-				return
+			closeErr := kc.consumerGroup.Close()
+
+			// Use select to handle timeout scenario
+			select {
+			case done <- closeErr:
+				// Successfully sent result
+			default:
+				// Timeout already occurred, nobody is reading
+				if closeErr != nil {
+					kc.logger.Warn().Err(closeErr).Msg("Close completed after timeout with error")
+				} else {
+					kc.logger.Warn().Msg("Close completed after timeout")
+				}
 			}
-			done <- nil
 		}()
 
 		// Wait for close to complete or timeout
@@ -242,20 +278,50 @@ func (kc *KafkaConsumer) Close() error {
 		case err := <-done:
 			if err != nil {
 				kc.logger.Error().Err(err).Msg("Error closing consumer group")
-				kc.closeErr = err
+				kc.setCloseError(fmt.Errorf("failed to close consumer group: %w", err))
 				return
 			}
 			kc.logger.Info().Msg("Kafka consumer closed successfully")
+			kc.markClosed()
 
 		case <-time.After(defaultCloseTimeout):
 			kc.logger.Error().
 				Dur("timeout", defaultCloseTimeout).
 				Msg("Timeout while closing consumer group")
-			kc.closeErr = fmt.Errorf("close timeout after %v", defaultCloseTimeout)
+			kc.setCloseError(fmt.Errorf("close timeout after %v", defaultCloseTimeout))
+			kc.markClosed() // Mark as closed even on timeout
 		}
 	})
 
+	return kc.getCloseError()
+}
+
+// IsClosed returns true if the consumer has been closed
+func (kc *KafkaConsumer) IsClosed() bool {
+	kc.closeMu.RLock()
+	defer kc.closeMu.RUnlock()
+	return kc.closed
+}
+
+// setCloseError safely sets the close error with mutex protection
+func (kc *KafkaConsumer) setCloseError(err error) {
+	kc.closeMu.Lock()
+	kc.closeErr = err
+	kc.closeMu.Unlock()
+}
+
+// getCloseError safely retrieves the close error with mutex protection
+func (kc *KafkaConsumer) getCloseError() error {
+	kc.closeMu.RLock()
+	defer kc.closeMu.RUnlock()
 	return kc.closeErr
+}
+
+// markClosed marks the consumer as closed
+func (kc *KafkaConsumer) markClosed() {
+	kc.closeMu.Lock()
+	kc.closed = true
+	kc.closeMu.Unlock()
 }
 
 // consumerGroupHandler implements sarama.ConsumerGroupHandler
