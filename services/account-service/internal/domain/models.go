@@ -32,10 +32,10 @@ type NewsItem struct {
 
 // SubscriptionEvent represents a subscription event from subscription service
 type SubscriptionEvent struct {
-	EventType   string // "subscription.created" or "subscription.deleted"
-	UserID      int64
-	ChannelID   string
-	ChannelName string
+	EventType   string `json:"event_type"`
+	UserID      int64  `json:"user_id"`
+	ChannelID   string `json:"channel_id"`
+	ChannelName string `json:"channel_name,omitempty"` // omitempty for deleted events
 }
 
 // ChannelInfo represents detailed information about a Telegram channel
