@@ -6,6 +6,7 @@ import (
 	"os/signal"
 	"runtime/debug"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -146,6 +147,9 @@ func main() {
 	ticker := time.NewTicker(cfg.News.PollInterval)
 	defer ticker.Stop()
 
+	// Prevent overlapping news collection executions
+	var isCollecting atomic.Bool
+
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
@@ -161,14 +165,25 @@ func main() {
 		for {
 			select {
 			case <-ticker.C:
+				// Skip if previous collection is still in progress
+				if !isCollecting.CompareAndSwap(false, true) {
+					log.Warn().Msg("Previous news collection still in progress, skipping tick")
+					continue
+				}
+
 				log.Debug().Msg("Collecting news from channels...")
 
 				// Collect news from all subscribed channels with timeout
-				collectCtx, collectCancel := context.WithTimeout(ctx, cfg.News.CollectionTimeout)
-				if err := accountUseCase.CollectNews(collectCtx); err != nil {
-					log.Error().Err(err).Msg("Failed to collect news")
-				}
-				collectCancel()
+				func() {
+					defer isCollecting.Store(false)
+
+					collectCtx, collectCancel := context.WithTimeout(ctx, cfg.News.CollectionTimeout)
+					defer collectCancel()
+
+					if err := accountUseCase.CollectNews(collectCtx); err != nil {
+						log.Error().Err(err).Msg("Failed to collect news")
+					}
+				}()
 
 			case <-ctx.Done():
 				log.Info().Msg("News collection stopped")

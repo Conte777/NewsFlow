@@ -87,6 +87,9 @@ type ChannelRepository interface {
 
 	// ChannelExists checks if channel exists
 	ChannelExists(ctx context.Context, channelID string) (bool, error)
+
+	// UpdateLastProcessedMessageID updates the last processed message ID for a channel
+	UpdateLastProcessedMessageID(ctx context.Context, channelID string, messageID int) error
 }
 
 // KafkaConsumer defines interface for receiving messages from Kafka

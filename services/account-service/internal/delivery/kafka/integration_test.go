@@ -249,6 +249,20 @@ func (m *mockChannelRepository) ChannelExists(ctx context.Context, channelID str
 	return exists, nil
 }
 
+func (m *mockChannelRepository) UpdateLastProcessedMessageID(ctx context.Context, channelID string, messageID int) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	ch, exists := m.channels[channelID]
+	if !exists {
+		return domain.ErrChannelNotFound
+	}
+
+	ch.LastProcessedMessageID = messageID
+	m.channels[channelID] = ch
+	return nil
+}
+
 // mockKafkaProducer implements KafkaProducer interface
 type mockKafkaProducer struct {
 	sentNews []domain.NewsItem

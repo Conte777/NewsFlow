@@ -12,11 +12,12 @@ type TelegramAccount struct {
 
 // ChannelSubscription represents a channel subscription for an account
 type ChannelSubscription struct {
-	AccountID   string
-	ChannelID   string
-	ChannelName string
-	IsActive    bool
-	CreatedAt   time.Time
+	AccountID              string
+	ChannelID              string
+	ChannelName            string
+	IsActive               bool
+	LastProcessedMessageID int       // Last message ID that was processed to avoid duplicates
+	CreatedAt              time.Time
 }
 
 // NewsItem represents a news message from a channel
