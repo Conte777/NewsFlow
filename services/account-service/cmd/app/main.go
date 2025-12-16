@@ -11,12 +11,14 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/YarosTrubechkoi/telegram-news-feed/account-service/config"
 	httpDelivery "github.com/YarosTrubechkoi/telegram-news-feed/account-service/internal/delivery/http"
 	"github.com/YarosTrubechkoi/telegram-news-feed/account-service/internal/delivery/kafka"
 	"github.com/YarosTrubechkoi/telegram-news-feed/account-service/internal/domain"
 	"github.com/YarosTrubechkoi/telegram-news-feed/account-service/internal/infrastructure/logger"
 	kafkaInfra "github.com/YarosTrubechkoi/telegram-news-feed/account-service/internal/infrastructure/kafka"
+	"github.com/YarosTrubechkoi/telegram-news-feed/account-service/internal/infrastructure/metrics"
 	"github.com/YarosTrubechkoi/telegram-news-feed/account-service/internal/infrastructure/telegram"
 	"github.com/YarosTrubechkoi/telegram-news-feed/account-service/internal/repository/memory"
 	"github.com/YarosTrubechkoi/telegram-news-feed/account-service/internal/usecase"
@@ -152,9 +154,10 @@ func main() {
 		log,
 	)
 
-	// Create HTTP mux and register health endpoint
+	// Create HTTP mux and register endpoints
 	mux := http.NewServeMux()
 	mux.Handle("/health", healthHandler)
+	mux.Handle("/metrics", promhttp.Handler())
 
 	// Create HTTP server
 	httpServer := httpDelivery.NewServer(cfg.Service.Port, mux, &log)
@@ -168,7 +171,27 @@ func main() {
 		Str("port", cfg.Service.Port).
 		Msg("HTTP server started successfully")
 
-	// 10. Start periodic news collection
+	// 10. Initialize metrics
+	log.Info().Msg("Initializing metrics...")
+
+	// Update account metrics
+	activeAccountCount := accountManager.GetActiveAccountCount()
+	totalAccountCount := len(accountManager.GetAllAccounts())
+	metrics.DefaultMetrics.UpdateAccounts(activeAccountCount, totalAccountCount)
+
+	// Update subscription metrics
+	channels, err := channelRepo.GetAllChannels(ctx)
+	if err == nil {
+		metrics.DefaultMetrics.UpdateActiveSubscriptions(len(channels))
+	}
+
+	log.Info().
+		Int("active_accounts", activeAccountCount).
+		Int("total_accounts", totalAccountCount).
+		Int("active_subscriptions", len(channels)).
+		Msg("Metrics initialized")
+
+	// 11. Start periodic news collection
 	log.Info().
 		Dur("interval", cfg.News.PollInterval).
 		Msg("Starting news collection ticker...")
