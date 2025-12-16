@@ -69,6 +69,9 @@ type AccountManager interface {
 	// The context should have a timeout (recommended 30 seconds).
 	// Returns the number of successfully disconnected accounts.
 	Shutdown(ctx context.Context) int
+
+	// GetActiveAccountCount returns the number of active (connected) accounts
+	GetActiveAccountCount() int
 }
 
 // ChannelRepository defines interface for channel subscription storage
@@ -99,6 +102,9 @@ type KafkaConsumer interface {
 
 	// Close closes the consumer
 	Close() error
+
+	// IsHealthy returns true if the consumer is healthy and consuming messages
+	IsHealthy() bool
 }
 
 // KafkaProducer defines interface for sending messages to Kafka
@@ -108,6 +114,9 @@ type KafkaProducer interface {
 
 	// Close closes the producer
 	Close() error
+
+	// IsHealthy returns true if the producer is healthy and can send messages
+	IsHealthy() bool
 }
 
 // SubscriptionEventHandler handles subscription events

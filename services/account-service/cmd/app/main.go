@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"net/http"
 	"os"
 	"os/signal"
 	"runtime/debug"
@@ -11,6 +12,7 @@ import (
 	"time"
 
 	"github.com/YarosTrubechkoi/telegram-news-feed/account-service/config"
+	httpDelivery "github.com/YarosTrubechkoi/telegram-news-feed/account-service/internal/delivery/http"
 	"github.com/YarosTrubechkoi/telegram-news-feed/account-service/internal/delivery/kafka"
 	"github.com/YarosTrubechkoi/telegram-news-feed/account-service/internal/domain"
 	"github.com/YarosTrubechkoi/telegram-news-feed/account-service/internal/infrastructure/logger"
@@ -139,7 +141,34 @@ func main() {
 		log.Fatal().Err(err).Msg("Failed to create Kafka consumer")
 	}
 
-	// 9. Start periodic news collection
+	// 9. Initialize HTTP Server for health checks
+	log.Info().Msg("Initializing HTTP server for health checks...")
+
+	// Create health handler with all components
+	healthHandler := httpDelivery.NewHealthHandler(
+		accountManager,
+		kafkaProducer,
+		kafkaConsumer,
+		log,
+	)
+
+	// Create HTTP mux and register health endpoint
+	mux := http.NewServeMux()
+	mux.Handle("/health", healthHandler)
+
+	// Create HTTP server
+	httpServer := httpDelivery.NewServer(cfg.Service.Port, mux, &log)
+
+	// Start HTTP server
+	if err := httpServer.Start(); err != nil {
+		log.Fatal().Err(err).Msg("Failed to start HTTP server")
+	}
+
+	log.Info().
+		Str("port", cfg.Service.Port).
+		Msg("HTTP server started successfully")
+
+	// 10. Start periodic news collection
 	log.Info().
 		Dur("interval", cfg.News.PollInterval).
 		Msg("Starting news collection ticker...")
@@ -245,19 +274,25 @@ func main() {
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), cfg.Service.ShutdownTimeout)
 	defer shutdownCancel()
 
-	// 1. Close Kafka Consumer (stop accepting new messages)
+	// 1. Shutdown HTTP Server (stop accepting new health check requests)
+	log.Info().Msg("Shutting down HTTP server...")
+	if err := httpServer.Shutdown(shutdownCtx); err != nil {
+		log.Error().Err(err).Msg("Error shutting down HTTP server")
+	}
+
+	// 2. Close Kafka Consumer (stop accepting new messages)
 	log.Info().Msg("Closing Kafka consumer...")
 	if err := kafkaConsumer.Close(); err != nil {
 		log.Error().Err(err).Msg("Error closing Kafka consumer")
 	}
 
-	// 2. Close Kafka Producer (flush pending messages)
+	// 3. Close Kafka Producer (flush pending messages)
 	log.Info().Msg("Closing Kafka producer...")
 	if err := kafkaProducer.Close(); err != nil {
 		log.Error().Err(err).Msg("Error closing Kafka producer")
 	}
 
-	// 3. Shutdown Account Manager (disconnect all Telegram clients)
+	// 4. Shutdown Account Manager (disconnect all Telegram clients)
 	log.Info().Msg("Shutting down account manager...")
 	disconnectedCount := accountManager.Shutdown(shutdownCtx)
 	log.Info().

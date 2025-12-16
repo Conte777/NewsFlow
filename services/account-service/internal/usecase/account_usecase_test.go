@@ -44,6 +44,10 @@ func (m *mockAccountManager) Shutdown(ctx context.Context) int {
 	return 0
 }
 
+func (m *mockAccountManager) GetActiveAccountCount() int {
+	return 1 // Default to 1 active account for tests
+}
+
 // mockTelegramClient is a mock implementation of domain.TelegramClient
 type mockTelegramClient struct {
 	getChannelMessagesFunc func(ctx context.Context, channelID string, limit, offset int) ([]domain.NewsItem, error)
@@ -140,6 +144,10 @@ func (m *mockKafkaProducer) SendNewsReceived(ctx context.Context, news *domain.N
 
 func (m *mockKafkaProducer) Close() error {
 	return nil
+}
+
+func (m *mockKafkaProducer) IsHealthy() bool {
+	return true // Mock is always healthy for tests
 }
 
 // TestCollectNews_LogsNewsCount tests that CollectNews logs the number of collected news

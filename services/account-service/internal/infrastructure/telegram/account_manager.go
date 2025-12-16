@@ -265,6 +265,20 @@ func (m *accountManager) GetAllAccounts() []domain.TelegramClient {
 	return accounts
 }
 
+// GetActiveAccountCount returns the number of active (connected) accounts
+func (m *accountManager) GetActiveAccountCount() int {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	activeCount := 0
+	for _, client := range m.accounts {
+		if client.IsConnected() {
+			activeCount++
+		}
+	}
+	return activeCount
+}
+
 // AddAccount adds a new account to the pool
 func (m *accountManager) AddAccount(client domain.TelegramClient) error {
 	if m.isShutdown.Load() {

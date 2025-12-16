@@ -32,7 +32,9 @@ type KafkaProducer struct {
 	wg            sync.WaitGroup
 	closeOnce     sync.Once
 	closeErr      error
-	errors        []error // Collect all errors during operation
+	closed        bool        // Indicates if producer has been closed
+	closeMu       sync.Mutex  // Protects closed and closeErr
+	errors        []error     // Collect all errors during operation
 	errorsMu      sync.Mutex
 }
 
@@ -288,6 +290,35 @@ func (p *KafkaProducer) Close() error {
 	return p.CloseWithTimeout(10 * time.Second)
 }
 
+// IsHealthy returns true if the producer is healthy and can send messages
+func (p *KafkaProducer) IsHealthy() bool {
+	if p.producer == nil {
+		return false
+	}
+
+	// Check if producer has been closed
+	p.closeMu.Lock()
+	isClosed := p.closed
+	p.closeMu.Unlock()
+
+	if isClosed {
+		return false
+	}
+
+	// Check recent error rate
+	p.errorsMu.Lock()
+	errorCount := len(p.errors)
+	p.errorsMu.Unlock()
+
+	// If there are too many errors, consider unhealthy
+	// This is a simple heuristic - for production, consider time-based error rate
+	if errorCount >= maxStoredErrors {
+		return false
+	}
+
+	return true
+}
+
 // CloseWithTimeout gracefully shuts down the Kafka producer with a custom timeout
 //
 // This method allows specifying a custom timeout for waiting for pending messages to be flushed.
@@ -303,6 +334,11 @@ func (p *KafkaProducer) CloseWithTimeout(timeout time.Duration) error {
 		p.logger.Info().
 			Dur("timeout", timeout).
 			Msg("Closing Kafka producer")
+
+		// Mark as closed
+		p.closeMu.Lock()
+		p.closed = true
+		p.closeMu.Unlock()
 
 		var errs []error
 
@@ -349,7 +385,8 @@ func (p *KafkaProducer) CloseWithTimeout(timeout time.Duration) error {
 			errs = append(errs, fmt.Errorf("producer had %d send errors during operation", errorCount))
 		}
 
-		// Combine all errors
+		// Combine all errors and store them
+		p.closeMu.Lock()
 		if len(errs) > 0 {
 			if len(errs) == 1 {
 				p.closeErr = errs[0]
@@ -365,7 +402,11 @@ func (p *KafkaProducer) CloseWithTimeout(timeout time.Duration) error {
 		} else {
 			p.logger.Info().Msg("Kafka producer closed successfully")
 		}
+		p.closeMu.Unlock()
 	})
 
+	// Return close error (thread-safe)
+	p.closeMu.Lock()
+	defer p.closeMu.Unlock()
 	return p.closeErr
 }

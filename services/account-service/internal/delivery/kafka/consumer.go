@@ -219,6 +219,21 @@ func (kc *KafkaConsumer) ConsumeSubscriptionEvents(ctx context.Context, handler 
 	}
 }
 
+// IsHealthy returns true if the consumer is healthy and consuming messages
+func (kc *KafkaConsumer) IsHealthy() bool {
+	// Check if consumer is closed
+	if kc.IsClosed() {
+		return false
+	}
+
+	// Check if consumer group is initialized
+	if kc.consumerGroup == nil {
+		return false
+	}
+
+	return true
+}
+
 // Close gracefully shuts down the Kafka consumer with a timeout
 //
 // This method ensures:

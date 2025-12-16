@@ -181,6 +181,18 @@ func (m *mockAccountManager) Shutdown(ctx context.Context) int {
 	return len(m.clients)
 }
 
+func (m *mockAccountManager) GetActiveAccountCount() int {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	activeCount := 0
+	for _, client := range m.clients {
+		if client.IsConnected() {
+			activeCount++
+		}
+	}
+	return activeCount
+}
+
 // mockChannelRepository implements ChannelRepository interface
 type mockChannelRepository struct {
 	channels map[string]domain.ChannelSubscription
@@ -290,6 +302,10 @@ func (m *mockKafkaProducer) SendNewsReceived(ctx context.Context, news *domain.N
 
 func (m *mockKafkaProducer) Close() error {
 	return nil
+}
+
+func (m *mockKafkaProducer) IsHealthy() bool {
+	return true // Mock is always healthy for tests
 }
 
 func (m *mockKafkaProducer) GetSentNews() []domain.NewsItem {
