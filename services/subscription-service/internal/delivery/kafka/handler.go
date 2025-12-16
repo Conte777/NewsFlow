@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"strconv"
+	"sync/atomic"
+	"time"
 
 	"github.com/Conte777/NewsFlow/services/subscription-service/internal/domain"
 	"github.com/Conte777/NewsFlow/services/subscription-service/internal/domain/events"
@@ -14,6 +16,9 @@ import (
 type SubscriptionEventHandler struct {
 	usecase domain.SubscriptionUseCase
 	logger  zerolog.Logger
+
+	processed uint64
+	errors    uint64
 }
 
 func NewSubscriptionEventHandler(
@@ -30,7 +35,21 @@ func (h *SubscriptionEventHandler) HandleSubscriptionCreated(
 	ctx context.Context,
 	event *events.SubscriptionEvent,
 ) error {
+
+	start := time.Now()
+	defer func() {
+		atomic.AddUint64(&h.processed, 1)
+		duration := time.Since(start)
+
+		h.logger.Info().
+			Dur("duration", duration).
+			Uint64("processed_total", atomic.LoadUint64(&h.processed)).
+			Uint64("errors_total", atomic.LoadUint64(&h.errors)).
+			Msg("subscription created event processed")
+	}()
+
 	if event.UserID == "" || event.ChannelID == "" || event.ChannelName == "" {
+		atomic.AddUint64(&h.errors, 1)
 		h.logger.Error().
 			Str("user_id", event.UserID).
 			Str("channel_id", event.ChannelID).
@@ -41,6 +60,7 @@ func (h *SubscriptionEventHandler) HandleSubscriptionCreated(
 
 	userID, err := strconv.ParseInt(event.UserID, 10, 64)
 	if err != nil {
+		atomic.AddUint64(&h.errors, 1)
 		h.logger.Error().
 			Err(err).
 			Str("user_id", event.UserID).
@@ -78,7 +98,21 @@ func (h *SubscriptionEventHandler) HandleSubscriptionDeleted(
 	ctx context.Context,
 	event *events.SubscriptionEvent,
 ) error {
+
+	start := time.Now()
+	defer func() {
+		atomic.AddUint64(&h.processed, 1)
+		duration := time.Since(start)
+
+		h.logger.Info().
+			Dur("duration", duration).
+			Uint64("processed_total", atomic.LoadUint64(&h.processed)).
+			Uint64("errors_total", atomic.LoadUint64(&h.errors)).
+			Msg("subscription deleted event processed")
+	}()
+
 	if event.UserID == "" || event.ChannelID == "" {
+		atomic.AddUint64(&h.errors, 1)
 		h.logger.Error().
 			Str("user_id", event.UserID).
 			Str("channel_id", event.ChannelID).
@@ -88,6 +122,7 @@ func (h *SubscriptionEventHandler) HandleSubscriptionDeleted(
 
 	userID, err := strconv.ParseInt(event.UserID, 10, 64)
 	if err != nil {
+		atomic.AddUint64(&h.errors, 1)
 		h.logger.Error().
 			Err(err).
 			Str("user_id", event.UserID).
