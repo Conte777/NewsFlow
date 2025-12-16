@@ -12,17 +12,24 @@ import (
 	"github.com/Conte777/NewsFlow/services/subscription-service/internal/usecase"
 )
 
+// Global logger
+var log = logger.New("info")
+
 func main() {
-	// --- Load configuration from .env ---
+	// --- Load configuration ---
 	cfg, err := config.LoadConfig()
 	if err != nil {
 		panic("failed to load configuration: " + err.Error())
 	}
 
-	// --- Initialize logger ---
-	log := logger.New(cfg.Logging.Level)
+	// --- Initialize global logger based on config ---
+	log = logger.New(cfg.Logging.Level)
+	log.Info().
+		Str("service", cfg.Service.Name).
+		Str("port", cfg.Service.Port).
+		Msg("logger initialized successfully")
 
-	// --- Log loaded config (without secrets) ---
+	// --- Log loaded configuration (without secrets) ---
 	log.Info().
 		Str("service", cfg.Service.Name).
 		Str("port", cfg.Service.Port).
@@ -32,10 +39,6 @@ func main() {
 		Str("kafka_group", cfg.Kafka.GroupID).
 		Str("log_level", cfg.Logging.Level).
 		Msg("configuration loaded successfully")
-
-	log.Info().
-		Str("service", cfg.Service.Name).
-		Msg("starting subscription service")
 
 	// --- Initialize database ---
 	db, err := database.NewPostgresDB(cfg.Database)
