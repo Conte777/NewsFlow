@@ -1,7 +1,6 @@
 package main
 
 import (
-	//"context"
 	"os"
 	"os/signal"
 	"syscall"
@@ -14,32 +13,39 @@ import (
 )
 
 func main() {
-	// Load configuration
-	cfg, err := config.Load()
+	// --- Load configuration from .env ---
+	cfg, err := config.LoadConfig()
 	if err != nil {
-		panic("Failed to load configuration: " + err.Error())
+		panic("failed to load configuration: " + err.Error())
 	}
 
-	// Initialize logger
+	// --- Initialize logger ---
 	log := logger.New(cfg.Logging.Level)
+
+	// --- Log loaded config (without secrets) ---
 	log.Info().
 		Str("service", cfg.Service.Name).
 		Str("port", cfg.Service.Port).
-		Msg("Starting subscription service")
+		Str("db_host", cfg.Database.Host).
+		Str("db_name", cfg.Database.DBName).
+		Strs("kafka_brokers", cfg.Kafka.Brokers).
+		Str("kafka_group", cfg.Kafka.GroupID).
+		Str("log_level", cfg.Logging.Level).
+		Msg("configuration loaded successfully")
 
-	// Initialize database
+	log.Info().
+		Str("service", cfg.Service.Name).
+		Msg("starting subscription service")
+
+	// --- Initialize database ---
 	db, err := database.NewPostgresDB(cfg.Database)
 	if err != nil {
-		log.Fatal().Err(err).Msg("Failed to connect to database")
+		log.Fatal().Err(err).Msg("failed to connect to database")
 	}
 
-	log.Info().Msg("Database connected successfully")
+	log.Info().Msg("database connected successfully")
 
-	// Create context with cancellation
-	//ctx, cancel := context.WithCancel(context.Background()) //временно отключить ctx до появления Kafka/UC
-	//defer cancel()
-
-	// Initialize repository
+	// --- Initialize repository ---
 	subscriptionRepo := postgres.NewSubscriptionRepository(db)
 
 	// TODO: Initialize Kafka producer
@@ -47,26 +53,19 @@ func main() {
 	_ = subscriptionRepo
 	_ = usecase.NewSubscriptionUseCase
 
-	// TODO: Initialize Kafka consumer
-	// TODO: Start consuming messages
+	log.Info().Msg("subscription service initialized successfully")
 
-	log.Info().Msg("Subscription service initialized successfully")
-
-	// Wait for interrupt signal
+	// --- Graceful shutdown ---
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
 
 	<-sigChan
-	log.Info().Msg("Shutting down subscription service...")
-
-	// TODO: Cleanup
-	// - Close Kafka connections
-	// - Close database connection
+	log.Info().Msg("shutting down subscription service")
 
 	sqlDB, _ := db.DB()
 	if sqlDB != nil {
 		sqlDB.Close()
 	}
 
-	log.Info().Msg("Subscription service stopped")
+	log.Info().Msg("subscription service stopped")
 }
