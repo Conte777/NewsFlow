@@ -48,6 +48,15 @@ func main() {
 
 	log.Info().Msg("database connected successfully")
 
+	// --- Run migrations ---
+	log.Info().Msg("running database migrations")
+
+	if err := database.RunMigrations(db, cfg.Database); err != nil {
+		log.Fatal().Err(err).Msg("failed to run database migrations")
+	}
+
+	log.Info().Msg("database migrations completed successfully")
+
 	// --- Initialize repository ---
 	subscriptionRepo := postgres.NewSubscriptionRepository(db)
 
