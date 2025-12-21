@@ -31,6 +31,24 @@ func NewSubscriptionEventHandler(
 	}
 }
 
+func (h *SubscriptionEventHandler) Handle(event *events.SubscriptionEvent) error {
+	ctx := context.Background()
+
+	switch event.Type {
+	case "subscription_created":
+		return h.HandleSubscriptionCreated(ctx, event)
+
+	case "subscription_cancelled":
+		return h.HandleSubscriptionDeleted(ctx, event)
+
+	default:
+		h.logger.Warn().
+			Str("event_type", event.Type).
+			Msg("received unknown subscription event type")
+		return nil // идемпотентно
+	}
+}
+
 func (h *SubscriptionEventHandler) HandleSubscriptionCreated(
 	ctx context.Context,
 	event *events.SubscriptionEvent,
