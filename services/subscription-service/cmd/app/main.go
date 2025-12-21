@@ -132,24 +132,32 @@ func main() {
 	<-sigChan
 	log.Info().Msg("shutdown signal received")
 
-	cancel()
+	cancel() // остановка consumer
 
+	// Закрываем consumer
 	if err := consumer.Close(); err != nil {
 		log.Error().Err(err).Msg("failed to close kafka consumer")
+	} else {
+		log.Info().Msg("kafka consumer closed")
 	}
 
-	if err := producer.Close(); err != nil {
-		log.Error().Err(err).Msg("failed to close kafka producer")
-	}
-
-	sqlDB, _ := db.DB()
-	if sqlDB != nil {
-		_ = sqlDB.Close()
-	}
-
+	// Закрываем producer через адаптер
 	if err := producerAdapter.Close(); err != nil {
 		log.Error().Err(err).Msg("failed to close kafka producer")
+	} else {
+		log.Info().Msg("kafka producer closed")
+	}
+
+	// Закрываем БД
+	sqlDB, _ := db.DB()
+	if sqlDB != nil {
+		if err := sqlDB.Close(); err != nil {
+			log.Error().Err(err).Msg("failed to close database connection")
+		} else {
+			log.Info().Msg("database connection closed")
+		}
 	}
 
 	log.Info().Msg("subscription service stopped")
+
 }
