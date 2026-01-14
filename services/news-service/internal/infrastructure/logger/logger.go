@@ -5,15 +5,19 @@ import (
 	"strings"
 
 	"github.com/rs/zerolog"
+	"github.com/yourusername/telegram-news-feed/news-service/config"
 )
 
-// New creates a new logger
+// NewLogger creates a new logger from config
+func NewLogger(cfg *config.LoggingConfig) zerolog.Logger {
+	return New(cfg.Level)
+}
+
+// New creates a new logger with specified level
 func New(level string) zerolog.Logger {
-	// Set log level
 	logLevel := parseLogLevel(level)
 	zerolog.SetGlobalLevel(logLevel)
 
-	// Create logger with pretty console output
 	logger := zerolog.New(zerolog.ConsoleWriter{Out: os.Stdout}).
 		With().
 		Timestamp().

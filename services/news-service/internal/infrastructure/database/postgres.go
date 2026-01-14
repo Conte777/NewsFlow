@@ -4,14 +4,14 @@ import (
 	"fmt"
 
 	"github.com/yourusername/telegram-news-feed/news-service/config"
-	"github.com/yourusername/telegram-news-feed/news-service/internal/domain"
+	"github.com/yourusername/telegram-news-feed/news-service/internal/domain/news/entities"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 )
 
 // NewPostgresDB creates a new PostgreSQL database connection
-func NewPostgresDB(cfg config.DatabaseConfig) (*gorm.DB, error) {
+func NewPostgresDB(cfg *config.DatabaseConfig) (*gorm.DB, error) {
 	dsn := cfg.GetDSN()
 
 	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{
@@ -22,8 +22,7 @@ func NewPostgresDB(cfg config.DatabaseConfig) (*gorm.DB, error) {
 		return nil, fmt.Errorf("failed to connect to database: %w", err)
 	}
 
-	// Auto migrate (optional, can be done with migrations instead)
-	if err := db.AutoMigrate(&domain.News{}, &domain.DeliveredNews{}); err != nil {
+	if err := db.AutoMigrate(&entities.News{}, &entities.DeliveredNews{}); err != nil {
 		return nil, fmt.Errorf("failed to auto migrate: %w", err)
 	}
 

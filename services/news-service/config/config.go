@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/joho/godotenv"
+	"go.uber.org/fx"
 )
 
 // Config holds all configuration for the news service
@@ -43,9 +44,35 @@ type ServiceConfig struct {
 	Port string
 }
 
+// Result is fx.Out struct for providing config dependencies
+type Result struct {
+	fx.Out
+
+	Config         *Config
+	DatabaseConfig *DatabaseConfig
+	KafkaConfig    *KafkaConfig
+	LoggingConfig  *LoggingConfig
+	ServiceConfig  *ServiceConfig
+}
+
+// Out returns fx-compatible config result
+func Out() (Result, error) {
+	cfg, err := Load()
+	if err != nil {
+		return Result{}, err
+	}
+
+	return Result{
+		Config:         cfg,
+		DatabaseConfig: &cfg.Database,
+		KafkaConfig:    &cfg.Kafka,
+		LoggingConfig:  &cfg.Logging,
+		ServiceConfig:  &cfg.Service,
+	}, nil
+}
+
 // Load loads configuration from environment variables
 func Load() (*Config, error) {
-	// Load .env file if exists
 	_ = godotenv.Load()
 
 	cfg := &Config{
