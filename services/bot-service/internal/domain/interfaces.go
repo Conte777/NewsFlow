@@ -21,6 +21,9 @@ type BotUseCase interface {
 
 	// SendNews sends news to user
 	SendNews(ctx context.Context, news *NewsMessage) error
+
+	// Новый метод для установки TelegramBot
+	SetTelegramBot(bot TelegramBot)
 }
 
 // KafkaProducer defines interface for sending messages to Kafka
@@ -42,6 +45,29 @@ type KafkaConsumer interface {
 
 	// Close closes the consumer
 	Close() error
+}
+
+// SubscriptionRepository определяет интерфейс для работы с подписками
+type SubscriptionRepository interface {
+	// GetUserSubscriptions возвращает список подписок пользователя
+	GetUserSubscriptions(ctx context.Context, userID int64) ([]Subscription, error)
+
+	// SaveSubscription сохраняет подписку пользователя
+	SaveSubscription(ctx context.Context, subscription *Subscription) error
+
+	// DeleteSubscription удаляет подписку пользователя
+	DeleteSubscription(ctx context.Context, userID int64, channelID string) error
+
+	// CheckSubscription проверяет, подписан ли пользователь на канал
+	CheckSubscription(ctx context.Context, userID int64, channelID string) (bool, error)
+}
+
+// SubscriptionEvent представляет событие подписки/отписки
+type SubscriptionEvent struct {
+	UserID    int64    `json:"user_id"`
+	Channels  []string `json:"channels"`
+	EventType string   `json:"event_type"` // "subscribe" или "unsubscribe"
+	Timestamp int64    `json:"timestamp"`
 }
 
 // TelegramBot defines interface for Telegram bot operations
