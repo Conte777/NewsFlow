@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/joho/godotenv"
+	"go.uber.org/fx"
 )
 
 // Config holds all configuration for the account service
@@ -192,4 +193,33 @@ func getEnv(key, defaultValue string) string {
 		return defaultValue
 	}
 	return value
+}
+
+// ConfigOut provides configuration components for fx DI
+type ConfigOut struct {
+	fx.Out
+
+	Config   *Config
+	Telegram *TelegramConfig
+	Kafka    *KafkaConfig
+	Logging  *LoggingConfig
+	Service  *ServiceConfig
+	News     *NewsConfig
+}
+
+// Out loads and provides configuration for fx
+func Out() (ConfigOut, error) {
+	cfg, err := Load()
+	if err != nil {
+		return ConfigOut{}, err
+	}
+
+	return ConfigOut{
+		Config:   cfg,
+		Telegram: &cfg.Telegram,
+		Kafka:    &cfg.Kafka,
+		Logging:  &cfg.Logging,
+		Service:  &cfg.Service,
+		News:     &cfg.News,
+	}, nil
 }
