@@ -4,8 +4,8 @@ import (
 	"context"
 	"strconv"
 
-	"github.com/Conte777/NewsFlow/services/subscription-service/internal/domain"
-	"github.com/Conte777/NewsFlow/services/subscription-service/internal/domain/events"
+	"github.com/Conte777/NewsFlow/services/subscription-service/internal/domain/subscription/dto"
+	"github.com/Conte777/NewsFlow/services/subscription-service/internal/domain/subscription/entities"
 )
 
 type ProducerAdapter struct {
@@ -19,10 +19,9 @@ func NewProducerAdapter(producer *KafkaProducer) *ProducerAdapter {
 func (a *ProducerAdapter) NotifyAccountService(
 	ctx context.Context,
 	eventType string,
-	subscription *domain.Subscription,
+	subscription *entities.Subscription,
 ) error {
-
-	event := &events.SubscriptionEvent{
+	event := &dto.SubscriptionEvent{
 		Type:        eventType,
 		UserID:      strconv.FormatInt(subscription.UserID, 10),
 		ChannelID:   subscription.ChannelID,
@@ -32,7 +31,6 @@ func (a *ProducerAdapter) NotifyAccountService(
 	return a.producer.NotifyAccountService(ctx, event)
 }
 
-// ✅ ВАЖНО: реализуем Close
 func (a *ProducerAdapter) Close() error {
 	return a.producer.Close()
 }
