@@ -77,6 +77,11 @@ func Load() (*Config, error) {
 	return cfg, nil
 }
 
+// LoadConfig loads configuration from .env and environment variables
+func LoadConfig() (*Config, error) {
+	return Load()
+}
+
 // Validate validates the configuration
 func (c *Config) Validate() error {
 	if c.Database.Host == "" {
