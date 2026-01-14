@@ -1,0 +1,16 @@
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# Binary
+bot-service
+bot-service.exe
+
+# IDE
+.idea/
+.vscode/
+
+# OS
+.DS_Store
+Thumbs.db

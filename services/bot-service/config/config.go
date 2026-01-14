@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/joho/godotenv"
+	"go.uber.org/fx"
 )
 
 // Config holds all configuration for the bot service
@@ -36,6 +37,33 @@ type LoggingConfig struct {
 type ServiceConfig struct {
 	Name string
 	Port string
+}
+
+// Result provides config parts for fx dependency injection using fx.Out pattern
+type Result struct {
+	fx.Out
+
+	Config   *Config
+	Telegram *TelegramConfig
+	Kafka    *KafkaConfig
+	Logging  *LoggingConfig
+	Service  *ServiceConfig
+}
+
+// Out loads configuration and returns Result for fx injection
+func Out() (Result, error) {
+	cfg, err := Load()
+	if err != nil {
+		return Result{}, err
+	}
+
+	return Result{
+		Config:   cfg,
+		Telegram: &cfg.Telegram,
+		Kafka:    &cfg.Kafka,
+		Logging:  &cfg.Logging,
+		Service:  &cfg.Service,
+	}, nil
 }
 
 // Load loads configuration from environment variables

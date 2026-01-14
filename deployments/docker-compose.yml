@@ -36,15 +36,13 @@ services:
       - telegram-news-network
     volumes:
       - kafka-data:/var/lib/kafka/data
-    command: >
-      bash -c "
-      # Форматирование хранилища для KRaft (только при первом запуске)
-      if [ ! -f /var/lib/kafka/data/meta.properties ]; then
-        /usr/bin/kafka-storage format -t $${CLUSTER_ID} -c /etc/kafka/kraft/server.properties;
-      fi;
-      # Запуск Kafka
-      /etc/confluent/docker/run
-      "
+    command: |
+      bash -c '
+        if [ ! -f /var/lib/kafka/data/meta.properties ]; then
+          /usr/bin/kafka-storage format -t $$CLUSTER_ID -c /etc/kafka/kraft/server.properties
+        fi
+        /etc/confluent/docker/run
+      '
 
   # Account Service - управление Telegram аккаунтами и сбор новостей
   account-service:

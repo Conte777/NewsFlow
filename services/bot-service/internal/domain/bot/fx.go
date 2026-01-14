@@ -1,0 +1,63 @@
+// Package bot contains the bot domain module
+package bot
+
+import (
+	tgbot "github.com/go-telegram/bot"
+	"github.com/rs/zerolog"
+	"go.uber.org/fx"
+
+	kafkaDelivery "github.com/Conte777/newsflow/services/bot-service/internal/domain/bot/delivery/kafka"
+	telegramDelivery "github.com/Conte777/newsflow/services/bot-service/internal/domain/bot/delivery/telegram"
+	kafkaRepo "github.com/Conte777/newsflow/services/bot-service/internal/domain/bot/repository/kafka"
+	"github.com/Conte777/newsflow/services/bot-service/internal/domain/bot/usecase/buissines"
+	"github.com/Conte777/newsflow/services/bot-service/internal/domain/bot/workers"
+	"github.com/Conte777/newsflow/services/bot-service/internal/infrastructure/telegram"
+)
+
+// Module provides bot domain components for fx dependency injection
+var Module = fx.Module("bot",
+	// Repository
+	fx.Provide(kafkaRepo.NewProducer),
+
+	// UseCase
+	fx.Provide(buissines.NewUseCase),
+
+	// Delivery - Telegram (needs raw bot from infrastructure)
+	fx.Provide(provideTelegramHandlers),
+	fx.Provide(telegramDelivery.NewRouter),
+
+	// Delivery - Kafka
+	fx.Provide(kafkaDelivery.NewHandlers),
+
+	// Workers
+	workers.Module,
+
+	// Wire cyclic dependency and register routes
+	fx.Invoke(wireAndRegister),
+)
+
+// provideTelegramHandlers creates Telegram handlers with raw bot
+func provideTelegramHandlers(uc *buissines.UseCase, bot *telegram.Bot, logger zerolog.Logger) *telegramDelivery.Handlers {
+	return telegramDelivery.NewHandlers(uc, bot.Raw(), logger)
+}
+
+// wireAndRegister resolves cyclic dependency and registers routes
+func wireAndRegister(
+	uc *buissines.UseCase,
+	handlers *telegramDelivery.Handlers,
+	router *telegramDelivery.Router,
+	bot *telegram.Bot,
+) {
+	// Handlers implements deps.TelegramSender interface
+	// This resolves the cyclic dependency: UseCase -> TelegramSender <- Handlers -> UseCase
+	uc.SetSender(handlers)
+
+	// Register Telegram command routes
+	router.RegisterRoutes(bot.Raw())
+}
+
+// RawBotProvider extracts raw tgbot.Bot from infrastructure Bot
+type RawBotProvider struct {
+	fx.Out
+	Bot *tgbot.Bot
+}
