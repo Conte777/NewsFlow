@@ -13,11 +13,28 @@ import (
 
 // Config holds all configuration for the account service
 type Config struct {
+	Database DatabaseConfig
 	Telegram TelegramConfig
 	Kafka    KafkaConfig
 	Logging  LoggingConfig
 	Service  ServiceConfig
 	News     NewsConfig
+}
+
+// DatabaseConfig holds PostgreSQL database configuration
+type DatabaseConfig struct {
+	Host     string
+	Port     string
+	User     string
+	Password string
+	DBName   string
+	SSLMode  string
+}
+
+// GetDSN returns database connection string
+func (c *DatabaseConfig) GetDSN() string {
+	return fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=%s",
+		c.Host, c.Port, c.User, c.Password, c.DBName, c.SSLMode)
 }
 
 // TelegramConfig holds Telegram MTProto configuration
@@ -101,6 +118,14 @@ func Load() (*Config, error) {
 	}
 
 	cfg := &Config{
+		Database: DatabaseConfig{
+			Host:     getEnv("DATABASE_HOST", "localhost"),
+			Port:     getEnv("DATABASE_PORT", "5434"),
+			User:     getEnv("DATABASE_USER", "accounts_user"),
+			Password: getEnv("DATABASE_PASSWORD", "accounts_pass"),
+			DBName:   getEnv("DATABASE_NAME", "accounts_db"),
+			SSLMode:  getEnv("DATABASE_SSLMODE", "disable"),
+		},
 		Telegram: TelegramConfig{
 			APIID:              apiID,
 			APIHash:            getEnv("TELEGRAM_API_HASH", ""),
@@ -200,6 +225,7 @@ type ConfigOut struct {
 	fx.Out
 
 	Config   *Config
+	Database *DatabaseConfig
 	Telegram *TelegramConfig
 	Kafka    *KafkaConfig
 	Logging  *LoggingConfig
@@ -216,6 +242,7 @@ func Out() (ConfigOut, error) {
 
 	return ConfigOut{
 		Config:   cfg,
+		Database: &cfg.Database,
 		Telegram: &cfg.Telegram,
 		Kafka:    &cfg.Kafka,
 		Logging:  &cfg.Logging,

@@ -8,11 +8,13 @@ import (
 	"sync"
 	"time"
 
+	"github.com/gotd/td/session"
 	"github.com/gotd/td/telegram"
 	"github.com/gotd/td/tg"
 	"github.com/gotd/td/tgerr"
 	"github.com/rs/zerolog"
 	"golang.org/x/time/rate"
+	"gorm.io/gorm"
 
 	"github.com/YarosTrubechkoi/telegram-news-feed/account-service/internal/domain"
 )
@@ -26,9 +28,10 @@ type MTProtoClient struct {
 	apiID   int
 	apiHash string
 
-	// Session storage
-	sessionStorage *FileSessionStorage
-	phoneNumber    string
+	// Session storage (one of these will be used)
+	sessionStorage   *FileSessionStorage      // Legacy file-based storage
+	postgresStorage  *PostgresSessionStorage  // PostgreSQL-based storage
+	phoneNumber      string
 
 	// Connection state
 	connected     bool
@@ -113,6 +116,52 @@ func NewMTProtoClient(cfg MTProtoClientConfig) (*MTProtoClient, error) {
 	return client, nil
 }
 
+// NewMTProtoClientWithDB creates a new MTProto client instance with PostgreSQL session storage
+func NewMTProtoClientWithDB(cfg MTProtoClientConfig, db *gorm.DB) (*MTProtoClient, error) {
+	if cfg.APIID == 0 {
+		return nil, fmt.Errorf("APIID is required")
+	}
+	if cfg.APIHash == "" {
+		return nil, fmt.Errorf("APIHash is required")
+	}
+	if cfg.PhoneNumber == "" {
+		return nil, fmt.Errorf("PhoneNumber is required")
+	}
+	if db == nil {
+		return nil, fmt.Errorf("database connection is required")
+	}
+
+	// Create PostgreSQL session storage
+	postgresStorage, err := NewPostgresSessionStorage(db, cfg.PhoneNumber)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create postgres session storage: %w", err)
+	}
+
+	maskedPhone := maskPhoneNumber(cfg.PhoneNumber)
+
+	client := &MTProtoClient{
+		apiID:               cfg.APIID,
+		apiHash:             cfg.APIHash,
+		phoneNumber:         cfg.PhoneNumber,
+		postgresStorage:     postgresStorage,
+		logger:              cfg.Logger.With().Str("component", "mtproto_client").Str("phone", maskedPhone).Logger(),
+		connected:           false,
+		rateLimiter:         rate.NewLimiter(rate.Every(time.Second), 10),
+		channelInfoCache:    make(map[string]*cachedChannelInfo),
+		channelInfoCacheTTL: 15 * time.Minute,
+	}
+
+	return client, nil
+}
+
+// getSessionStorage returns the appropriate session storage (postgres or file)
+func (c *MTProtoClient) getSessionStorage() session.Storage {
+	if c.postgresStorage != nil {
+		return c.postgresStorage
+	}
+	return c.sessionStorage
+}
+
 // Connect connects to Telegram using MTProto with full authentication support
 // The caller should provide a context with timeout to prevent indefinite hanging.
 // Recommended timeout: 2-5 minutes to allow for user authentication input.
@@ -137,7 +186,7 @@ func (c *MTProtoClient) Connect(ctx context.Context) error {
 
 	// Create telegram client with session storage
 	c.client = telegram.NewClient(c.apiID, c.apiHash, telegram.Options{
-		SessionStorage: c.sessionStorage,
+		SessionStorage: c.getSessionStorage(),
 	})
 
 	// Create cancellable context for client lifecycle

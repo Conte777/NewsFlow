@@ -1,6 +1,7 @@
 package infrastructure
 
 import (
+	"github.com/YarosTrubechkoi/telegram-news-feed/account-service/internal/infrastructure/database"
 	httpfx "github.com/YarosTrubechkoi/telegram-news-feed/account-service/internal/infrastructure/http"
 	"github.com/YarosTrubechkoi/telegram-news-feed/account-service/internal/infrastructure/kafka"
 	"github.com/YarosTrubechkoi/telegram-news-feed/account-service/internal/infrastructure/logger"
@@ -12,6 +13,7 @@ import (
 // Module aggregates all infrastructure modules
 var Module = fx.Module("infrastructure",
 	logger.Module,
+	database.Module, // Must be before telegram (telegram depends on *gorm.DB)
 	metrics.Module,
 	telegram.Module,
 	kafka.Module,

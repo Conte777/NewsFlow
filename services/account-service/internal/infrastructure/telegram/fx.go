@@ -7,6 +7,7 @@ import (
 	"github.com/YarosTrubechkoi/telegram-news-feed/account-service/internal/domain"
 	"github.com/rs/zerolog"
 	"go.uber.org/fx"
+	"gorm.io/gorm"
 )
 
 // Module provides Telegram account manager for fx DI
@@ -18,10 +19,16 @@ var Module = fx.Module("telegram",
 func NewAccountManagerFx(
 	lc fx.Lifecycle,
 	telegramCfg *config.TelegramConfig,
+	db *gorm.DB,
 	logger zerolog.Logger,
 ) (domain.AccountManager, error) {
 	manager := NewAccountManager().(*accountManager)
 	manager.WithLogger(logger)
+
+	// Set client factory to use PostgreSQL session storage
+	manager.clientFactory = func(cfg MTProtoClientConfig) (domain.TelegramClient, error) {
+		return NewMTProtoClientWithDB(cfg, db)
+	}
 
 	lc.Append(fx.Hook{
 		OnStart: func(ctx context.Context) error {

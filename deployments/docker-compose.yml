@@ -54,7 +54,16 @@ services:
     container_name: telegram-news-account-service
     depends_on:
       - kafka
+      - postgres
     environment:
+      # Database Configuration
+      DATABASE_HOST: postgres
+      DATABASE_PORT: "5432"
+      DATABASE_USER: accounts_user
+      DATABASE_PASSWORD: accounts_pass
+      DATABASE_NAME: accounts_db
+      DATABASE_SSLMODE: disable
+
       # Telegram Configuration
       TELEGRAM_API_ID: ${TELEGRAM_API_ID}
       TELEGRAM_API_HASH: ${TELEGRAM_API_HASH}
@@ -95,44 +104,24 @@ services:
       retries: 3
       start_period: 40s
 
-  # PostgreSQL для Subscription Service
-  postgres-subscriptions:
+  # PostgreSQL - единый контейнер для всех сервисов
+  postgres:
     image: postgres:15-alpine
-    container_name: telegram-news-postgres-subscriptions
+    container_name: telegram-news-postgres
     environment:
-      POSTGRES_DB: subscriptions_db
-      POSTGRES_USER: subscriptions_user
-      POSTGRES_PASSWORD: subscriptions_pass
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres_admin_pass
+      POSTGRES_DB: postgres
       PGDATA: /var/lib/postgresql/data/pgdata
     ports:
       - "5432:5432"
     networks:
       - telegram-news-network
     volumes:
-      - postgres-subscriptions-data:/var/lib/postgresql/data
+      - postgres-data:/var/lib/postgresql/data
+      - ./postgres/init-databases.sh:/docker-entrypoint-initdb.d/init-databases.sh:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U subscriptions_user -d subscriptions_db"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
-  # PostgreSQL для News Service
-  postgres-news:
-    image: postgres:15-alpine
-    container_name: telegram-news-postgres-news
-    environment:
-      POSTGRES_DB: news_db
-      POSTGRES_USER: news_user
-      POSTGRES_PASSWORD: news_pass
-      PGDATA: /var/lib/postgresql/data/pgdata
-    ports:
-      - "5433:5432"
-    networks:
-      - telegram-news-network
-    volumes:
-      - postgres-news-data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U news_user -d news_db"]
+      test: ["CMD-SHELL", "pg_isready -U postgres -d postgres"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -158,7 +147,6 @@ networks:
 
 volumes:
   kafka-data:
-  postgres-subscriptions-data:
-  postgres-news-data:
+  postgres-data:
   account-sessions:
   account-logs:
