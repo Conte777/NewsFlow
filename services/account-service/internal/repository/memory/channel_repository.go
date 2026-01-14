@@ -5,7 +5,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/yourusername/telegram-news-feed/account-service/internal/domain"
+	"github.com/YarosTrubechkoi/telegram-news-feed/account-service/internal/domain"
 )
 
 // channelRepository implements domain.ChannelRepository using in-memory storage
@@ -84,4 +84,18 @@ func (r *channelRepository) ChannelExists(ctx context.Context, channelID string)
 
 	_, exists := r.channels[channelID]
 	return exists, nil
+}
+
+// UpdateLastProcessedMessageID updates the last processed message ID for a channel
+func (r *channelRepository) UpdateLastProcessedMessageID(ctx context.Context, channelID string, messageID int) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	channel, exists := r.channels[channelID]
+	if !exists {
+		return domain.ErrChannelNotFound
+	}
+
+	channel.LastProcessedMessageID = messageID
+	return nil
 }

@@ -2,9 +2,12 @@ package usecase
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"time"
 
-	"github.com/yourusername/telegram-news-feed/account-service/internal/domain"
+	"github.com/YarosTrubechkoi/telegram-news-feed/account-service/internal/domain"
+	"github.com/YarosTrubechkoi/telegram-news-feed/account-service/internal/infrastructure/metrics"
 	"github.com/rs/zerolog"
 )
 
@@ -14,6 +17,7 @@ type accountUseCase struct {
 	channelRepo    domain.ChannelRepository
 	kafkaProducer  domain.KafkaProducer
 	logger         zerolog.Logger
+	metrics        *metrics.Metrics
 }
 
 // NewAccountUseCase creates a new account use case
@@ -28,11 +32,14 @@ func NewAccountUseCase(
 		channelRepo:    channelRepo,
 		kafkaProducer:  kafkaProducer,
 		logger:         logger,
+		metrics:        metrics.DefaultMetrics,
 	}
 }
 
 // SubscribeToChannel subscribes an account to a channel
 func (u *accountUseCase) SubscribeToChannel(ctx context.Context, channelID, channelName string) error {
+	start := time.Now()
+
 	if channelID == "" {
 		return domain.ErrInvalidChannelID
 	}
@@ -43,6 +50,7 @@ func (u *accountUseCase) SubscribeToChannel(ctx context.Context, channelID, chan
 		u.logger.Error().Err(err).
 			Str("channel_id", channelID).
 			Msg("Failed to check channel existence")
+		u.metrics.RecordSubscriptionError("repository_error")
 		return err
 	}
 
@@ -57,6 +65,7 @@ func (u *accountUseCase) SubscribeToChannel(ctx context.Context, channelID, chan
 	client, err := u.accountManager.GetAvailableAccount()
 	if err != nil {
 		u.logger.Error().Err(err).Msg("Failed to get available account")
+		u.metrics.RecordSubscriptionError("no_active_accounts")
 		return domain.ErrNoActiveAccounts
 	}
 
@@ -65,17 +74,20 @@ func (u *accountUseCase) SubscribeToChannel(ctx context.Context, channelID, chan
 		u.logger.Error().Err(err).
 			Str("channel_id", channelID).
 			Msg("Failed to join channel")
+		u.metrics.RecordSubscriptionError("join_failed")
 		return domain.ErrSubscriptionFailed
 	}
 
 	// Get channel name if not provided
 	if channelName == "" {
-		channelName, err = client.GetChannelInfo(ctx, channelID)
+		info, err := client.GetChannelInfo(ctx, channelID)
 		if err != nil {
 			u.logger.Warn().Err(err).
 				Str("channel_id", channelID).
-				Msg("Failed to get channel name, using channel ID")
+				Msg("Failed to get channel info, using channel ID")
 			channelName = channelID
+		} else {
+			channelName = info.Title
 		}
 	}
 
@@ -84,7 +96,18 @@ func (u *accountUseCase) SubscribeToChannel(ctx context.Context, channelID, chan
 		u.logger.Error().Err(err).
 			Str("channel_id", channelID).
 			Msg("Failed to save channel subscription")
+		u.metrics.RecordSubscriptionError("repository_save_failed")
 		return err
+	}
+
+	// Record successful subscription
+	duration := time.Since(start).Seconds()
+	u.metrics.RecordSubscription(duration)
+
+	// Update active subscriptions count
+	channels, err := u.channelRepo.GetAllChannels(ctx)
+	if err == nil {
+		u.metrics.UpdateActiveSubscriptions(len(channels))
 	}
 
 	u.logger.Info().
@@ -97,6 +120,8 @@ func (u *accountUseCase) SubscribeToChannel(ctx context.Context, channelID, chan
 
 // UnsubscribeFromChannel unsubscribes an account from a channel
 func (u *accountUseCase) UnsubscribeFromChannel(ctx context.Context, channelID string) error {
+	start := time.Now()
+
 	if channelID == "" {
 		return domain.ErrInvalidChannelID
 	}
@@ -107,6 +132,7 @@ func (u *accountUseCase) UnsubscribeFromChannel(ctx context.Context, channelID s
 		u.logger.Error().Err(err).
 			Str("channel_id", channelID).
 			Msg("Failed to check channel existence")
+		u.metrics.RecordUnsubscriptionError("repository_error")
 		return err
 	}
 
@@ -121,6 +147,7 @@ func (u *accountUseCase) UnsubscribeFromChannel(ctx context.Context, channelID s
 	client, err := u.accountManager.GetAvailableAccount()
 	if err != nil {
 		u.logger.Error().Err(err).Msg("Failed to get available account")
+		u.metrics.RecordUnsubscriptionError("no_active_accounts")
 		return domain.ErrNoActiveAccounts
 	}
 
@@ -129,6 +156,7 @@ func (u *accountUseCase) UnsubscribeFromChannel(ctx context.Context, channelID s
 		u.logger.Error().Err(err).
 			Str("channel_id", channelID).
 			Msg("Failed to leave channel")
+		u.metrics.RecordUnsubscriptionError("leave_failed")
 		return domain.ErrUnsubscriptionFailed
 	}
 
@@ -137,7 +165,18 @@ func (u *accountUseCase) UnsubscribeFromChannel(ctx context.Context, channelID s
 		u.logger.Error().Err(err).
 			Str("channel_id", channelID).
 			Msg("Failed to remove channel subscription")
+		u.metrics.RecordUnsubscriptionError("repository_remove_failed")
 		return err
+	}
+
+	// Record successful unsubscription
+	duration := time.Since(start).Seconds()
+	u.metrics.RecordUnsubscription(duration)
+
+	// Update active subscriptions count
+	channels, err := u.channelRepo.GetAllChannels(ctx)
+	if err == nil {
+		u.metrics.UpdateActiveSubscriptions(len(channels))
 	}
 
 	u.logger.Info().
@@ -149,10 +188,13 @@ func (u *accountUseCase) UnsubscribeFromChannel(ctx context.Context, channelID s
 
 // CollectNews collects news from all subscribed channels
 func (u *accountUseCase) CollectNews(ctx context.Context) error {
+	start := time.Now()
+
 	// Get all subscribed channels
 	channels, err := u.channelRepo.GetAllChannels(ctx)
 	if err != nil {
 		u.logger.Error().Err(err).Msg("Failed to get subscribed channels")
+		u.metrics.RecordNewsCollectionError()
 		return err
 	}
 
@@ -167,27 +209,85 @@ func (u *accountUseCase) CollectNews(ctx context.Context) error {
 	client, err := u.accountManager.GetAvailableAccount()
 	if err != nil {
 		u.logger.Error().Err(err).Msg("Failed to get available account")
+		u.metrics.RecordNewsCollectionError()
 		return domain.ErrNoActiveAccounts
 	}
 
+	// Track collected news statistics
+	totalCollected := 0
+	totalSent := 0
+	totalSkipped := 0
+
+	// Rate limiter to avoid Telegram API flood (100ms between requests)
+	rateLimiter := time.NewTicker(100 * time.Millisecond)
+	defer rateLimiter.Stop()
+
 	// Collect news from each channel
-	for _, channel := range channels {
-		newsItems, err := client.GetChannelMessages(ctx, channel.ChannelID, 10)
+	for i, channel := range channels {
+		// Apply rate limiting (skip for first channel)
+		if i > 0 {
+			select {
+			case <-ctx.Done():
+				u.logger.Warn().
+					Int("processed_channels", i).
+					Int("total_channels", len(channels)).
+					Msg("Collection cancelled by context")
+				return ctx.Err()
+			case <-rateLimiter.C:
+				// Continue with next channel
+			}
+		}
+
+		newsItems, err := client.GetChannelMessages(ctx, channel.ChannelID, 10, 0)
 		if err != nil {
-			u.logger.Error().Err(err).
-				Str("channel_id", channel.ChannelID).
-				Msg("Failed to get channel messages")
+			if errors.Is(err, context.DeadlineExceeded) {
+				u.logger.Warn().
+					Str("channel_id", channel.ChannelID).
+					Msg("Timeout getting channel messages")
+			} else {
+				u.logger.Error().Err(err).
+					Str("channel_id", channel.ChannelID).
+					Msg("Failed to get channel messages")
+			}
 			continue
 		}
 
-		// Send each news item to Kafka
+		totalCollected += len(newsItems)
+
+		// Track the highest message ID for this channel
+		maxMessageID := channel.LastProcessedMessageID
+
+		// Send each news item to Kafka (filter duplicates)
 		for _, news := range newsItems {
+			// Skip already processed messages
+			if news.MessageID <= channel.LastProcessedMessageID {
+				totalSkipped++
+				u.logger.Debug().
+					Str("channel_id", news.ChannelID).
+					Int("message_id", news.MessageID).
+					Int("last_processed", channel.LastProcessedMessageID).
+					Msg("Skipping already processed message")
+				continue
+			}
+
+			kafkaStart := time.Now()
 			if err := u.kafkaProducer.SendNewsReceived(ctx, &news); err != nil {
 				u.logger.Error().Err(err).
 					Str("channel_id", news.ChannelID).
 					Int("message_id", news.MessageID).
 					Msg("Failed to send news to Kafka")
+				u.metrics.RecordKafkaError("send_failed")
 				continue
+			}
+
+			// Record Kafka message sent with duration
+			kafkaDuration := time.Since(kafkaStart).Seconds()
+			u.metrics.RecordKafkaMessage(kafkaDuration)
+			totalSent++
+
+			// Track the highest message ID
+			if news.MessageID > maxMessageID {
+				maxMessageID = news.MessageID
 			}
 
 			u.logger.Debug().
@@ -195,7 +295,34 @@ func (u *accountUseCase) CollectNews(ctx context.Context) error {
 				Int("message_id", news.MessageID).
 				Msg("News sent to Kafka")
 		}
+
+		// Update LastProcessedMessageID if we processed any new messages
+		if maxMessageID > channel.LastProcessedMessageID {
+			if err := u.channelRepo.UpdateLastProcessedMessageID(ctx, channel.ChannelID, maxMessageID); err != nil {
+				u.logger.Error().Err(err).
+					Str("channel_id", channel.ChannelID).
+					Int("message_id", maxMessageID).
+					Msg("Failed to update last processed message ID")
+			} else {
+				u.logger.Debug().
+					Str("channel_id", channel.ChannelID).
+					Int("last_processed_message_id", maxMessageID).
+					Msg("Updated last processed message ID")
+			}
+		}
 	}
+
+	// Log collection results
+	u.logger.Info().
+		Int("total_collected", totalCollected).
+		Int("total_sent", totalSent).
+		Int("total_skipped", totalSkipped).
+		Int("channels_count", len(channels)).
+		Msg("News collection completed")
+
+	// Record news collection metrics
+	duration := time.Since(start).Seconds()
+	u.metrics.RecordNewsCollection(totalSent, duration)
 
 	return nil
 }

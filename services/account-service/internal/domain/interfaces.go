@@ -23,7 +23,8 @@ type TelegramClient interface {
 	Connect(ctx context.Context) error
 
 	// Disconnect disconnects from Telegram
-	Disconnect() error
+	// The context controls the timeout for graceful shutdown
+	Disconnect(ctx context.Context) error
 
 	// JoinChannel joins a Telegram channel
 	JoinChannel(ctx context.Context, channelID string) error
@@ -31,14 +32,17 @@ type TelegramClient interface {
 	// LeaveChannel leaves a Telegram channel
 	LeaveChannel(ctx context.Context, channelID string) error
 
-	// GetChannelMessages retrieves recent messages from a channel
-	GetChannelMessages(ctx context.Context, channelID string, limit int) ([]NewsItem, error)
+	// GetChannelMessages retrieves recent messages from a channel with pagination support
+	GetChannelMessages(ctx context.Context, channelID string, limit, offset int) ([]NewsItem, error)
 
-	// GetChannelInfo retrieves information about a channel
-	GetChannelInfo(ctx context.Context, channelID string) (string, error) // Returns channel name
+	// GetChannelInfo retrieves detailed information about a channel
+	GetChannelInfo(ctx context.Context, channelID string) (*ChannelInfo, error)
 
 	// IsConnected checks if client is connected
 	IsConnected() bool
+
+	// GetAccountID returns unique identifier for this account (e.g., phone number)
+	GetAccountID() string
 }
 
 // AccountManager manages multiple Telegram accounts
@@ -54,6 +58,20 @@ type AccountManager interface {
 
 	// RemoveAccount removes an account
 	RemoveAccount(accountID string) error
+
+	// InitializeAccounts loads and initializes Telegram accounts from configuration
+	// It creates clients for each phone number and connects them in parallel.
+	// Returns a detailed report about initialization success/failure.
+	InitializeAccounts(ctx context.Context, cfg AccountInitConfig) *InitializationReport
+
+	// Shutdown gracefully disconnects all managed accounts
+	// It disconnects accounts sequentially with proper error handling.
+	// The context should have a timeout (recommended 30 seconds).
+	// Returns the number of successfully disconnected accounts.
+	Shutdown(ctx context.Context) int
+
+	// GetActiveAccountCount returns the number of active (connected) accounts
+	GetActiveAccountCount() int
 }
 
 // ChannelRepository defines interface for channel subscription storage
@@ -72,6 +90,9 @@ type ChannelRepository interface {
 
 	// ChannelExists checks if channel exists
 	ChannelExists(ctx context.Context, channelID string) (bool, error)
+
+	// UpdateLastProcessedMessageID updates the last processed message ID for a channel
+	UpdateLastProcessedMessageID(ctx context.Context, channelID string, messageID int) error
 }
 
 // KafkaConsumer defines interface for receiving messages from Kafka
@@ -81,6 +102,9 @@ type KafkaConsumer interface {
 
 	// Close closes the consumer
 	Close() error
+
+	// IsHealthy returns true if the consumer is healthy and consuming messages
+	IsHealthy() bool
 }
 
 // KafkaProducer defines interface for sending messages to Kafka
@@ -90,6 +114,9 @@ type KafkaProducer interface {
 
 	// Close closes the producer
 	Close() error
+
+	// IsHealthy returns true if the producer is healthy and can send messages
+	IsHealthy() bool
 }
 
 // SubscriptionEventHandler handles subscription events
