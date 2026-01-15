@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   # Kafka в режиме KRaft (без Zookeeper)
   kafka:
@@ -97,6 +95,99 @@ services:
     restart: unless-stopped
     healthcheck:
       test: ["CMD-SHELL", "pgrep account-service || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Subscription Service - управление подписками пользователей
+  subscription-service:
+    build:
+      context: ..
+      dockerfile: services/subscription-service/Dockerfile
+    container_name: telegram-news-subscription-service
+    depends_on:
+      - kafka
+      - postgres
+    environment:
+      DATABASE_HOST: postgres
+      DATABASE_PORT: "5432"
+      DATABASE_USER: subscriptions_user
+      DATABASE_PASSWORD: subscriptions_pass
+      DATABASE_NAME: subscriptions_db
+      DATABASE_SSLMODE: disable
+      KAFKA_BROKERS: kafka:9092
+      KAFKA_GROUP_ID: subscription-service-group
+      SERVICE_NAME: subscription-service
+      SERVICE_PORT: "8082"
+      GRPC_PORT: "50051"
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    networks:
+      - telegram-news-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pgrep subscription-service || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # News Service - обработка и доставка новостей
+  news-service:
+    build:
+      context: ../services/news-service
+      dockerfile: Dockerfile
+    container_name: telegram-news-news-service
+    depends_on:
+      - kafka
+      - postgres
+      - subscription-service
+    environment:
+      DATABASE_HOST: postgres
+      DATABASE_PORT: "5432"
+      DATABASE_USER: news_user
+      DATABASE_PASSWORD: news_pass
+      DATABASE_NAME: news_db
+      DATABASE_SSLMODE: disable
+      KAFKA_BROKERS: kafka:9092
+      KAFKA_GROUP_ID: news-service-group
+      SERVICE_NAME: news-service
+      SERVICE_PORT: "8083"
+      SUBSCRIPTION_SERVICE_URL: http://subscription-service:8082
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    networks:
+      - telegram-news-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pgrep news-service || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Bot Service - Telegram бот для взаимодействия с пользователями
+  bot-service:
+    build:
+      context: ..
+      dockerfile: services/bot-service/Dockerfile
+    container_name: telegram-news-bot-service
+    depends_on:
+      - kafka
+      - subscription-service
+    env_file:
+      - ../services/bot-service/.env  # TELEGRAM_BOT_TOKEN
+    environment:
+      KAFKA_BROKERS: kafka:9092
+      KAFKA_GROUP_ID: bot-service-group
+      SUBSCRIPTION_SERVICE_GRPC_ADDR: subscription-service:50051
+      SERVICE_NAME: bot-service
+      SERVICE_PORT: "8081"
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    networks:
+      - telegram-news-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pgrep bot-service || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 3

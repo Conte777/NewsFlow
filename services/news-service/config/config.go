@@ -48,8 +48,7 @@ type ServiceConfig struct {
 
 // SubscriptionServiceConfig holds subscription service client configuration
 type SubscriptionServiceConfig struct {
-	URL     string
-	Timeout time.Duration
+	GRPCAddr string
 }
 
 // Result is fx.Out struct for providing config dependencies
@@ -106,8 +105,7 @@ func Load() (*Config, error) {
 			Port: getEnv("SERVICE_PORT", "8083"),
 		},
 		SubscriptionService: SubscriptionServiceConfig{
-			URL:     getEnv("SUBSCRIPTION_SERVICE_URL", "http://subscription-service:8082"),
-			Timeout: getEnvDuration("SUBSCRIPTION_SERVICE_TIMEOUT", 30*time.Second),
+			GRPCAddr: getEnv("SUBSCRIPTION_SERVICE_GRPC_ADDR", "localhost:50051"),
 		},
 	}
 

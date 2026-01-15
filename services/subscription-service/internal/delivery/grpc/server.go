@@ -56,3 +56,26 @@ func (s *Server) GetUserSubscriptions(ctx context.Context, req *pb.GetUserSubscr
 
 	return &pb.GetUserSubscriptionsResponse{Subscriptions: result}, nil
 }
+
+// GetChannelSubscribers returns all users subscribed to a channel
+func (s *Server) GetChannelSubscribers(ctx context.Context, req *pb.GetChannelSubscribersRequest) (*pb.GetChannelSubscribersResponse, error) {
+	s.logger.Debug().
+		Str("channel_id", req.ChannelId).
+		Msg("gRPC GetChannelSubscribers called")
+
+	userIDs, err := s.useCase.GetChannelSubscribers(ctx, req.ChannelId)
+	if err != nil {
+		s.logger.Error().
+			Err(err).
+			Str("channel_id", req.ChannelId).
+			Msg("Failed to get channel subscribers")
+		return nil, err
+	}
+
+	s.logger.Debug().
+		Str("channel_id", req.ChannelId).
+		Int("count", len(userIDs)).
+		Msg("Returning channel subscribers")
+
+	return &pb.GetChannelSubscribersResponse{UserIds: userIDs}, nil
+}

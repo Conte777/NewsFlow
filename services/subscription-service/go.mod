@@ -3,7 +3,7 @@ module github.com/Conte777/NewsFlow/services/subscription-service
 go 1.24.0
 
 require (
-	github.com/Conte777/NewsFlow/pkg/proto v0.0.0
+	github.com/Conte777/NewsFlow/pkg/proto v0.2.0
 	github.com/IBM/sarama v1.46.3
 	github.com/golang-migrate/migrate/v4 v4.19.1
 	github.com/joho/godotenv v1.5.1

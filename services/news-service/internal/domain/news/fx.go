@@ -4,7 +4,7 @@ import (
 	"go.uber.org/fx"
 
 	"github.com/yourusername/telegram-news-feed/news-service/internal/domain/news/delivery/kafka"
-	"github.com/yourusername/telegram-news-feed/news-service/internal/domain/news/repository/http_clients/subscription"
+	"github.com/yourusername/telegram-news-feed/news-service/internal/domain/news/repository/grpc_clients/subscription"
 	"github.com/yourusername/telegram-news-feed/news-service/internal/domain/news/repository/postgres"
 	"github.com/yourusername/telegram-news-feed/news-service/internal/domain/news/usecase/buissines"
 )
