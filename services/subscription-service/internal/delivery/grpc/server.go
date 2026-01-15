@@ -6,18 +6,18 @@ import (
 	"github.com/rs/zerolog"
 
 	pb "github.com/Conte777/NewsFlow/pkg/proto/subscription/v1"
-	"github.com/Conte777/NewsFlow/services/subscription-service/internal/domain"
+	"github.com/Conte777/NewsFlow/services/subscription-service/internal/domain/subscription/deps"
 )
 
 // Server implements the gRPC SubscriptionService
 type Server struct {
 	pb.UnimplementedSubscriptionServiceServer
-	useCase domain.SubscriptionUseCase
+	useCase deps.SubscriptionUseCase
 	logger  zerolog.Logger
 }
 
 // NewServer creates a new gRPC server instance
-func NewServer(useCase domain.SubscriptionUseCase, logger zerolog.Logger) *Server {
+func NewServer(useCase deps.SubscriptionUseCase, logger zerolog.Logger) *Server {
 	return &Server{
 		useCase: useCase,
 		logger:  logger,

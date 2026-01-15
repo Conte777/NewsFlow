@@ -4,13 +4,13 @@ import (
 	"context"
 	"encoding/json"
 
-	"github.com/Conte777/NewsFlow/services/subscription-service/internal/domain/events"
+	"github.com/Conte777/NewsFlow/services/subscription-service/internal/domain/subscription/dto"
 	"github.com/IBM/sarama"
 	"github.com/rs/zerolog"
 )
 
 type ConsumerEventHandler interface {
-	Handle(event *events.SubscriptionEvent) error
+	Handle(event *dto.SubscriptionEvent) error
 }
 
 type KafkaConsumer struct {
@@ -97,7 +97,7 @@ func (c *KafkaConsumer) ConsumeClaim(session sarama.ConsumerGroupSession, claim 
 			Int64("offset", msg.Offset).
 			Msg("received message from Kafka")
 
-		var event events.SubscriptionEvent
+		var event dto.SubscriptionEvent
 		if err := json.Unmarshal(msg.Value, &event); err != nil {
 			c.logger.Error().
 				Err(err).

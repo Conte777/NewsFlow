@@ -7,7 +7,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/Conte777/NewsFlow/services/subscription-service/internal/domain/events"
+	"github.com/Conte777/NewsFlow/services/subscription-service/internal/domain/subscription/dto"
 	"github.com/IBM/sarama"
 	"github.com/rs/zerolog"
 )
@@ -59,7 +59,7 @@ func (p *KafkaProducer) Close() error {
 	return nil
 }
 
-func (p *KafkaProducer) NotifyAccountService(ctx context.Context, event *events.SubscriptionEvent) error {
+func (p *KafkaProducer) NotifyAccountService(ctx context.Context, event *dto.SubscriptionEvent) error {
 	topic := getTopicByEventType(event.Type)
 
 	bytes, err := json.Marshal(event)

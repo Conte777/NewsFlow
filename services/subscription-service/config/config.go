@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/joho/godotenv"
+	"go.uber.org/fx"
 )
 
 // Config holds all configuration for the subscription service
@@ -120,4 +121,29 @@ func getEnv(key, defaultValue string) string {
 		return defaultValue
 	}
 	return value
+}
+
+// Result for fx dependency injection
+type Result struct {
+	fx.Out
+	Config   *Config
+	Database *DatabaseConfig
+	Kafka    *KafkaConfig
+	Logging  *LoggingConfig
+	Service  *ServiceConfig
+}
+
+// Out returns configuration for fx
+func Out() (Result, error) {
+	cfg, err := Load()
+	if err != nil {
+		return Result{}, err
+	}
+	return Result{
+		Config:   cfg,
+		Database: &cfg.Database,
+		Kafka:    &cfg.Kafka,
+		Logging:  &cfg.Logging,
+		Service:  &cfg.Service,
+	}, nil
 }
