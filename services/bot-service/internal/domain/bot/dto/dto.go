@@ -38,13 +38,13 @@ type SubscriptionDeletedEvent struct {
 
 // NewsDeliveryEvent represents a Kafka event for news delivery
 type NewsDeliveryEvent struct {
-	ID          string   `json:"id"`
+	NewsID      uint     `json:"news_id"`
 	UserID      int64    `json:"user_id"`
 	ChannelID   string   `json:"channel_id"`
 	ChannelName string   `json:"channel_name"`
 	Content     string   `json:"content"`
 	MediaURLs   []string `json:"media_urls"`
-	CreatedAt   string   `json:"created_at"`
+	Timestamp   int64    `json:"timestamp"`
 }
 
 // CommandResponse represents a response for bot commands

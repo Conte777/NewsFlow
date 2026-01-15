@@ -155,7 +155,7 @@ func (uc *UseCase) SendNews(ctx context.Context, news *entities.NewsMessage) err
 	}
 
 	uc.logger.Info().
-		Str("news_id", news.ID).
+		Uint("news_id", news.ID).
 		Int64("user_id", news.UserID).
 		Str("channel_id", news.ChannelID).
 		Msg("Sending news to user")

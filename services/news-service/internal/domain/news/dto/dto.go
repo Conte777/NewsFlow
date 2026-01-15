@@ -4,21 +4,23 @@ import "time"
 
 // NewsReceivedEvent represents incoming news event from account service
 type NewsReceivedEvent struct {
-	ChannelID   string   `json:"channelId" validate:"required"`
-	ChannelName string   `json:"channelName" validate:"required"`
-	MessageID   int      `json:"messageId" validate:"required"`
-	Content     string   `json:"content"`
-	MediaURLs   []string `json:"mediaUrls"`
+	ChannelID   string    `json:"channel_id" validate:"required"`
+	ChannelName string    `json:"channel_name" validate:"required"`
+	MessageID   int       `json:"message_id" validate:"required"`
+	Content     string    `json:"content"`
+	MediaURLs   []string  `json:"media_urls"`
+	Date        time.Time `json:"date"`
 }
 
 // NewsDeliveryEvent represents outgoing news delivery event to bot service
 type NewsDeliveryEvent struct {
-	NewsID      uint     `json:"newsId"`
-	UserID      int64    `json:"userId"`
-	ChannelID   string   `json:"channelId"`
-	ChannelName string   `json:"channelName"`
+	NewsID      uint     `json:"news_id"`
+	UserID      int64    `json:"user_id"`
+	ChannelID   string   `json:"channel_id"`
+	ChannelName string   `json:"channel_name"`
 	Content     string   `json:"content"`
-	MediaURLs   []string `json:"mediaUrls"`
+	MediaURLs   []string `json:"media_urls"`
+	Timestamp   int64    `json:"timestamp"`
 }
 
 // GetUserNewsRequest represents request to get user's news history
