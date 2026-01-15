@@ -2,12 +2,17 @@ package main
 
 import (
 	"context"
+	"net"
 	"os"
 	"os/signal"
 	"syscall"
 
+	"google.golang.org/grpc"
+
+	pb "github.com/Conte777/NewsFlow/pkg/proto/subscription/v1"
 	"github.com/Conte777/NewsFlow/services/subscription-service/config"
 	"github.com/Conte777/NewsFlow/services/subscription-service/internal/delivery/kafka"
+	grpcDelivery "github.com/Conte777/NewsFlow/services/subscription-service/internal/delivery/grpc"
 	"github.com/Conte777/NewsFlow/services/subscription-service/internal/infrastructure/database"
 	kafkaInfra "github.com/Conte777/NewsFlow/services/subscription-service/internal/infrastructure/kafka"
 	"github.com/Conte777/NewsFlow/services/subscription-service/internal/infrastructure/logger"
@@ -85,6 +90,25 @@ func main() {
 	)
 
 	// ------------------------------------------------------------------
+	// gRPC server
+	// ------------------------------------------------------------------
+	grpcServer := grpc.NewServer()
+	grpcHandler := grpcDelivery.NewServer(subscriptionUseCase, log)
+	pb.RegisterSubscriptionServiceServer(grpcServer, grpcHandler)
+
+	lis, err := net.Listen("tcp", ":"+cfg.Service.GRPCPort)
+	if err != nil {
+		log.Fatal().Err(err).Str("port", cfg.Service.GRPCPort).Msg("failed to listen for gRPC")
+	}
+
+	go func() {
+		log.Info().Str("port", cfg.Service.GRPCPort).Msg("gRPC server started")
+		if err := grpcServer.Serve(lis); err != nil {
+			log.Error().Err(err).Msg("gRPC server failed")
+		}
+	}()
+
+	// ------------------------------------------------------------------
 	// Event handler
 	// ------------------------------------------------------------------
 	eventHandler := kafka.NewSubscriptionEventHandler(
@@ -133,6 +157,10 @@ func main() {
 	log.Info().Msg("shutdown signal received")
 
 	cancel() // остановка consumer
+
+	// Закрываем gRPC сервер
+	grpcServer.GracefulStop()
+	log.Info().Msg("gRPC server stopped")
 
 	// Закрываем consumer
 	if err := consumer.Close(); err != nil {

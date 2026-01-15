@@ -39,8 +39,9 @@ type LoggingConfig struct {
 
 // ServiceConfig holds service configuration
 type ServiceConfig struct {
-	Name string
-	Port string
+	Name     string
+	Port     string
+	GRPCPort string
 }
 
 // Load loads configuration from environment variables
@@ -65,8 +66,9 @@ func Load() (*Config, error) {
 			Level: getEnv("LOG_LEVEL", "info"),
 		},
 		Service: ServiceConfig{
-			Name: getEnv("SERVICE_NAME", "subscription-service"),
-			Port: getEnv("SERVICE_PORT", "8082"),
+			Name:     getEnv("SERVICE_NAME", "subscription-service"),
+			Port:     getEnv("SERVICE_PORT", "8082"),
+			GRPCPort: getEnv("GRPC_PORT", "50051"),
 		},
 	}
 

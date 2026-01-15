@@ -1,0 +1,839 @@
+// Package telegram contains Telegram delivery handlers
+package telegram
+
+import (
+	"context"
+	"fmt"
+	"mime"
+	"net/http"
+	"net/url"
+	"path"
+	"strings"
+	"time"
+
+	tgbot "github.com/go-telegram/bot"
+	"github.com/go-telegram/bot/models"
+	"github.com/rs/zerolog"
+
+	"github.com/Conte777/newsflow/services/bot-service/internal/domain/bot/dto"
+	"github.com/Conte777/newsflow/services/bot-service/internal/domain/bot/usecase/buissines"
+)
+
+// Constants for Telegram API
+const (
+	MaxMessageLength    = 4096
+	MessageSplitTimeout = 2 * time.Second
+	RequestTimeout      = 30 * time.Second
+	MaxMediaGroupSize   = 10
+	MaxRetries          = 3
+	RetryDelay          = 2 * time.Second
+	MaxFileSize         = 50 * 1024 * 1024 // 50MB
+	MaxPhotoSize        = 10 * 1024 * 1024 // 10MB
+	MaxVideoSize        = 50 * 1024 * 1024 // 50MB
+)
+
+// MediaType represents media file type
+type MediaType string
+
+const (
+	MediaTypePhoto       MediaType = "photo"
+	MediaTypeVideo       MediaType = "video"
+	MediaTypeDocument    MediaType = "document"
+	MediaTypeUnsupported MediaType = "unsupported"
+)
+
+// MediaInfo contains media file information
+type MediaInfo struct {
+	URL      string
+	Type     MediaType
+	MimeType string
+	FileName string
+}
+
+// Handlers contains Telegram command handlers
+// Implements deps.TelegramSender interface
+type Handlers struct {
+	uc         *buissines.UseCase
+	bot        *tgbot.Bot
+	logger     zerolog.Logger
+	httpClient *http.Client
+}
+
+// NewHandlers creates new Telegram handlers
+func NewHandlers(uc *buissines.UseCase, bot *tgbot.Bot, logger zerolog.Logger) *Handlers {
+	return &Handlers{
+		uc:     uc,
+		bot:    bot,
+		logger: logger,
+		httpClient: &http.Client{
+			Timeout: RequestTimeout,
+		},
+	}
+}
+
+// SendMessage implements deps.TelegramSender interface
+func (h *Handlers) SendMessage(ctx context.Context, userID int64, text string) error {
+	if text == "" {
+		h.logger.Warn().Int64("user_id", userID).Msg("Attempt to send empty message")
+		return fmt.Errorf("message text cannot be empty")
+	}
+
+	h.logger.Debug().Int64("user_id", userID).Int("text_length", len(text)).Msg("Sending message to user")
+
+	if len(text) > MaxMessageLength {
+		return h.sendSplitMessage(ctx, userID, text)
+	}
+
+	return h.sendSingleMessage(ctx, userID, text)
+}
+
+// SendMessageWithMedia implements deps.TelegramSender interface
+func (h *Handlers) SendMessageWithMedia(ctx context.Context, userID int64, text string, mediaURLs []string) error {
+	if len(mediaURLs) == 0 {
+		return h.SendMessage(ctx, userID, text)
+	}
+
+	h.logger.Info().Int64("user_id", userID).Int("media_count", len(mediaURLs)).Msg("Sending message with media")
+
+	mediaInfos, err := h.validateAndClassifyMedia(mediaURLs)
+	if err != nil {
+		return fmt.Errorf("media validation failed: %w", err)
+	}
+
+	if len(mediaInfos) == 1 {
+		return h.sendSingleMedia(ctx, userID, text, mediaInfos[0])
+	} else if len(mediaInfos) <= MaxMediaGroupSize {
+		return h.sendMediaGroup(ctx, userID, text, mediaInfos)
+	}
+
+	return h.sendMultipleMediaGroups(ctx, userID, text, mediaInfos)
+}
+
+// HandleStart handles /start command
+func (h *Handlers) HandleStart(ctx context.Context, bot *tgbot.Bot, update *models.Update) {
+	userID := update.Message.From.ID
+	chatID := update.Message.Chat.ID
+
+	h.logCommand(int64(userID), "/start", "processing")
+
+	req := &dto.StartCommandRequest{
+		UserID:   int64(userID),
+		Username: update.Message.From.Username,
+	}
+
+	resp, err := h.uc.HandleStart(ctx, req)
+	if err != nil {
+		h.logError(int64(userID), "/start", err)
+		h.sendResponse(ctx, chatID, "❌ Произошла ошибка при обработке команды /start")
+		return
+	}
+
+	h.sendResponse(ctx, chatID, resp.Message)
+	h.logCommand(int64(userID), "/start", "success")
+}
+
+// HandleHelp handles /help command
+func (h *Handlers) HandleHelp(ctx context.Context, bot *tgbot.Bot, update *models.Update) {
+	userID := update.Message.From.ID
+	chatID := update.Message.Chat.ID
+
+	h.logCommand(int64(userID), "/help", "processing")
+
+	resp, err := h.uc.HandleHelp(ctx)
+	if err != nil {
+		h.logError(int64(userID), "/help", err)
+		h.sendResponse(ctx, chatID, "❌ Произошла ошибка при обработке команды /help")
+		return
+	}
+
+	h.sendResponse(ctx, chatID, resp.Message)
+	h.logCommand(int64(userID), "/help", "success")
+}
+
+// HandleSubscribe handles /subscribe command
+func (h *Handlers) HandleSubscribe(ctx context.Context, bot *tgbot.Bot, update *models.Update) {
+	userID := update.Message.From.ID
+	chatID := update.Message.Chat.ID
+	text := update.Message.Text
+
+	h.logCommand(int64(userID), "/subscribe", "processing")
+
+	channels, err := h.parseChannels(text, "/subscribe")
+	if err != nil {
+		h.logError(int64(userID), "/subscribe", err)
+		h.sendResponse(ctx, chatID, fmt.Sprintf("❌ Ошибка парсинга: %s", err.Error()))
+		return
+	}
+
+	if len(channels) == 0 {
+		h.sendResponse(ctx, chatID, "❌ Укажите каналы для подписки. Пример: /subscribe @channel1 @channel2")
+		return
+	}
+
+	req := &dto.SubscribeRequest{
+		UserID:   int64(userID),
+		Channels: channels,
+	}
+
+	resp, err := h.uc.HandleSubscribe(ctx, req)
+	if err != nil {
+		h.logError(int64(userID), "/subscribe", err)
+		h.sendResponse(ctx, chatID, fmt.Sprintf("❌ Ошибка подписки: %s", err.Error()))
+		return
+	}
+
+	h.sendResponse(ctx, chatID, resp.Message)
+	h.logCommand(int64(userID), "/subscribe", fmt.Sprintf("subscribed to %v", channels))
+}
+
+// HandleUnsubscribe handles /unsubscribe command
+func (h *Handlers) HandleUnsubscribe(ctx context.Context, bot *tgbot.Bot, update *models.Update) {
+	userID := update.Message.From.ID
+	chatID := update.Message.Chat.ID
+	text := update.Message.Text
+
+	h.logCommand(int64(userID), "/unsubscribe", "processing")
+
+	channels, err := h.parseChannels(text, "/unsubscribe")
+	if err != nil {
+		h.logError(int64(userID), "/unsubscribe", err)
+		h.sendResponse(ctx, chatID, fmt.Sprintf("❌ Ошибка парсинга: %s", err.Error()))
+		return
+	}
+
+	if len(channels) == 0 {
+		h.sendResponse(ctx, chatID, "❌ Укажите каналы для отписки. Пример: /unsubscribe @channel1 @channel2")
+		return
+	}
+
+	req := &dto.UnsubscribeRequest{
+		UserID:   int64(userID),
+		Channels: channels,
+	}
+
+	resp, err := h.uc.HandleUnsubscribe(ctx, req)
+	if err != nil {
+		h.logError(int64(userID), "/unsubscribe", err)
+		h.sendResponse(ctx, chatID, fmt.Sprintf("❌ Ошибка отписки: %s", err.Error()))
+		return
+	}
+
+	h.sendResponse(ctx, chatID, resp.Message)
+	h.logCommand(int64(userID), "/unsubscribe", fmt.Sprintf("unsubscribed from %v", channels))
+}
+
+// HandleList handles /list command
+func (h *Handlers) HandleList(ctx context.Context, bot *tgbot.Bot, update *models.Update) {
+	userID := update.Message.From.ID
+	chatID := update.Message.Chat.ID
+
+	h.logCommand(int64(userID), "/list", "processing")
+
+	resp, err := h.uc.HandleListSubscriptions(ctx, int64(userID))
+	if err != nil {
+		h.logError(int64(userID), "/list", err)
+		h.sendResponse(ctx, chatID, "❌ Произошла ошибка при получении списка подписок")
+		return
+	}
+
+	result := h.formatSubscriptions(resp)
+	h.sendResponse(ctx, chatID, result)
+	h.logCommand(int64(userID), "/list", "success")
+}
+
+// formatSubscriptions formats subscriptions to string
+func (h *Handlers) formatSubscriptions(resp *dto.SubscriptionListResponse) string {
+	if len(resp.Subscriptions) == 0 {
+		return "📋 У вас пока нет подписок"
+	}
+
+	var result strings.Builder
+	result.WriteString("📋 <b>Ваши подписки:</b>\n")
+
+	for _, sub := range resp.Subscriptions {
+		result.WriteString(fmt.Sprintf("• <code>%s</code>\n", sub.ChannelName))
+	}
+
+	return result.String()
+}
+
+// sendResponse sends response message to chat
+func (h *Handlers) sendResponse(ctx context.Context, chatID int64, text string) {
+	if err := h.SendMessage(ctx, chatID, text); err != nil {
+		h.logger.Error().Int64("chat_id", chatID).Err(err).Msg("Failed to send Telegram response")
+	}
+}
+
+// sendSingleMessage sends a single message
+func (h *Handlers) sendSingleMessage(ctx context.Context, userID int64, text string) error {
+	msgCtx, cancel := context.WithTimeout(ctx, RequestTimeout)
+	defer cancel()
+
+	_, err := h.bot.SendMessage(msgCtx, &tgbot.SendMessageParams{
+		ChatID:    userID,
+		Text:      text,
+		ParseMode: models.ParseModeHTML,
+	})
+
+	if err != nil {
+		handledErr := h.handleSendMessageError(userID, err)
+		h.logMessageSend(userID, len(text), false, handledErr)
+		return handledErr
+	}
+
+	h.logMessageSend(userID, len(text), true, nil)
+	return nil
+}
+
+// sendSplitMessage splits long message and sends parts
+func (h *Handlers) sendSplitMessage(ctx context.Context, userID int64, text string) error {
+	h.logger.Info().Int64("user_id", userID).Int("total_length", len(text)).Msg("Splitting long message into parts")
+
+	parts := h.splitMessage(text)
+	totalParts := len(parts)
+	successCount := 0
+
+	for i, part := range parts {
+		partNumber := i + 1
+
+		if totalParts > 1 {
+			part = fmt.Sprintf("<i>(Часть %d/%d)</i>\n\n%s", partNumber, totalParts, part)
+		}
+
+		err := h.sendSingleMessage(ctx, userID, part)
+		if err != nil {
+			h.logger.Error().Int64("user_id", userID).Int("part", partNumber).Int("total_parts", totalParts).Err(err).Msg("Failed to send message part")
+			continue
+		}
+
+		successCount++
+
+		if partNumber < totalParts {
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(MessageSplitTimeout):
+			}
+		}
+	}
+
+	h.logger.Info().Int64("user_id", userID).Int("success_parts", successCount).Int("total_parts", totalParts).Msg("Finished sending split message")
+
+	if successCount == 0 {
+		return fmt.Errorf("failed to send all message parts")
+	}
+
+	if successCount < totalParts {
+		return fmt.Errorf("sent only %d out of %d message parts", successCount, totalParts)
+	}
+
+	return nil
+}
+
+// splitMessage splits text into parts not exceeding max length
+func (h *Handlers) splitMessage(text string) []string {
+	if len(text) <= MaxMessageLength {
+		return []string{text}
+	}
+
+	var parts []string
+	lines := strings.Split(text, "\n")
+	currentPart := strings.Builder{}
+	currentLength := 0
+
+	for _, line := range lines {
+		lineLength := len(line) + 1
+
+		if currentLength+lineLength > MaxMessageLength {
+			if currentPart.Len() > 0 {
+				parts = append(parts, currentPart.String())
+				currentPart.Reset()
+				currentLength = 0
+			}
+
+			if lineLength > MaxMessageLength {
+				splitLines := h.splitLongLine(line)
+				parts = append(parts, splitLines...)
+				continue
+			}
+		}
+
+		if currentPart.Len() > 0 {
+			currentPart.WriteString("\n")
+			currentLength++
+		}
+		currentPart.WriteString(line)
+		currentLength += len(line)
+	}
+
+	if currentPart.Len() > 0 {
+		parts = append(parts, currentPart.String())
+	}
+
+	return parts
+}
+
+// splitLongLine splits very long line into parts
+func (h *Handlers) splitLongLine(line string) []string {
+	if len(line) <= MaxMessageLength {
+		return []string{line}
+	}
+
+	var parts []string
+	start := 0
+
+	for start < len(line) {
+		end := start + MaxMessageLength
+		if end > len(line) {
+			end = len(line)
+		}
+
+		if end < len(line) {
+			lastSpace := strings.LastIndex(line[start:end], " ")
+			if lastSpace > 0 {
+				end = start + lastSpace
+			}
+		}
+
+		parts = append(parts, line[start:end])
+		start = end
+
+		for start < len(line) && line[start] == ' ' {
+			start++
+		}
+	}
+
+	return parts
+}
+
+// handleSendMessageError handles message sending errors
+func (h *Handlers) handleSendMessageError(userID int64, err error) error {
+	errorMsg := err.Error()
+
+	switch {
+	case strings.Contains(errorMsg, "Forbidden"):
+		h.logger.Warn().Int64("user_id", userID).Msg("User blocked the bot or chat not found")
+		return fmt.Errorf("user blocked the bot or chat not found")
+
+	case strings.Contains(errorMsg, "Bad Request: chat not found"):
+		h.logger.Warn().Int64("user_id", userID).Msg("Chat not found")
+		return fmt.Errorf("chat not found")
+
+	case strings.Contains(errorMsg, "Too Many Requests"):
+		h.logger.Warn().Int64("user_id", userID).Msg("Rate limit exceeded")
+		return fmt.Errorf("rate limit exceeded, please try again later")
+
+	case strings.Contains(errorMsg, "network error"), strings.Contains(errorMsg, "timeout"):
+		h.logger.Warn().Int64("user_id", userID).Msg("Network error while sending message")
+		return fmt.Errorf("network error, please try again")
+
+	default:
+		h.logger.Error().Int64("user_id", userID).Err(err).Msg("Unknown error while sending message")
+		return fmt.Errorf("failed to send message: %w", err)
+	}
+}
+
+// logMessageSend logs message send result
+func (h *Handlers) logMessageSend(userID int64, length int, success bool, err error) {
+	logEvent := h.logger.Info()
+	if !success {
+		logEvent = h.logger.Error()
+	}
+
+	logEvent.Int64("user_id", userID).Int("message_length", length).Bool("success", success)
+
+	if err != nil {
+		logEvent.Err(err)
+	}
+
+	logEvent.Msg("Message send attempt completed")
+}
+
+// validateAndClassifyMedia validates URLs and determines media type
+func (h *Handlers) validateAndClassifyMedia(mediaURLs []string) ([]MediaInfo, error) {
+	var mediaInfos []MediaInfo
+
+	for _, mediaURL := range mediaURLs {
+		if err := h.validateMediaURL(mediaURL); err != nil {
+			return nil, err
+		}
+
+		mediaInfo, err := h.classifyMedia(mediaURL)
+		if err != nil {
+			return nil, err
+		}
+
+		if err := h.checkFileSize(mediaInfo); err != nil {
+			return nil, err
+		}
+
+		mediaInfos = append(mediaInfos, mediaInfo)
+	}
+
+	return mediaInfos, nil
+}
+
+// validateMediaURL validates media URL
+func (h *Handlers) validateMediaURL(mediaURL string) error {
+	parsedURL, err := url.Parse(mediaURL)
+	if err != nil {
+		return fmt.Errorf("invalid URL format '%s': %w", mediaURL, err)
+	}
+
+	if parsedURL.Scheme != "http" && parsedURL.Scheme != "https" {
+		return fmt.Errorf("unsupported URL scheme '%s' for '%s'", parsedURL.Scheme, mediaURL)
+	}
+
+	req, err := http.NewRequest("HEAD", mediaURL, nil)
+	if err != nil {
+		return fmt.Errorf("failed to create HEAD request for '%s': %w", mediaURL, err)
+	}
+
+	resp, err := h.httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to access media URL '%s': %w", mediaURL, err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("media URL '%s' returned status %d", mediaURL, resp.StatusCode)
+	}
+
+	return nil
+}
+
+// classifyMedia determines media file type by URL
+func (h *Handlers) classifyMedia(mediaURL string) (MediaInfo, error) {
+	parsedURL, _ := url.Parse(mediaURL)
+	fileName := path.Base(parsedURL.Path)
+	ext := strings.ToLower(path.Ext(fileName))
+
+	mimeType := mime.TypeByExtension(ext)
+	if mimeType == "" {
+		req, err := http.NewRequest("HEAD", mediaURL, nil)
+		if err == nil {
+			resp, err := h.httpClient.Do(req)
+			if err == nil {
+				defer resp.Body.Close()
+				contentType := resp.Header.Get("Content-Type")
+				if contentType != "" {
+					mimeType = contentType
+				}
+			}
+		}
+	}
+
+	mediaType := h.determineMediaType(mimeType, ext)
+
+	return MediaInfo{
+		URL:      mediaURL,
+		Type:     mediaType,
+		MimeType: mimeType,
+		FileName: fileName,
+	}, nil
+}
+
+// determineMediaType determines media type by MIME type and extension
+func (h *Handlers) determineMediaType(mimeType, ext string) MediaType {
+	switch {
+	case strings.HasPrefix(mimeType, "image/"):
+		return MediaTypePhoto
+	case strings.HasPrefix(mimeType, "video/"):
+		return MediaTypeVideo
+	case strings.HasPrefix(mimeType, "application/") || strings.HasPrefix(mimeType, "text/"):
+		return MediaTypeDocument
+	}
+
+	switch ext {
+	case ".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp":
+		return MediaTypePhoto
+	case ".mp4", ".avi", ".mov", ".mkv", ".webm":
+		return MediaTypeVideo
+	case ".pdf", ".doc", ".docx", ".txt", ".zip", ".rar":
+		return MediaTypeDocument
+	default:
+		return MediaTypeUnsupported
+	}
+}
+
+// checkFileSize checks file size against Telegram limits
+func (h *Handlers) checkFileSize(mediaInfo MediaInfo) error {
+	req, err := http.NewRequest("HEAD", mediaInfo.URL, nil)
+	if err != nil {
+		return fmt.Errorf("failed to create HEAD request: %w", err)
+	}
+
+	resp, err := h.httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to get file size for '%s': %w", mediaInfo.URL, err)
+	}
+	defer resp.Body.Close()
+
+	contentLength := resp.Header.Get("Content-Length")
+	if contentLength == "" {
+		h.logger.Warn().Str("url", mediaInfo.URL).Msg("Could not determine file size, proceeding anyway")
+		return nil
+	}
+
+	var fileSize int64
+	fmt.Sscanf(contentLength, "%d", &fileSize)
+
+	switch mediaInfo.Type {
+	case MediaTypePhoto:
+		if fileSize > MaxPhotoSize {
+			return fmt.Errorf("photo size %d bytes exceeds limit %d bytes", fileSize, MaxPhotoSize)
+		}
+	case MediaTypeVideo:
+		if fileSize > MaxVideoSize {
+			return fmt.Errorf("video size %d bytes exceeds limit %d bytes", fileSize, MaxVideoSize)
+		}
+	case MediaTypeDocument:
+		if fileSize > MaxFileSize {
+			return fmt.Errorf("document size %d bytes exceeds limit %d bytes", fileSize, MaxFileSize)
+		}
+	}
+
+	return nil
+}
+
+// sendSingleMedia sends single media with text
+func (h *Handlers) sendSingleMedia(ctx context.Context, userID int64, text string, mediaInfo MediaInfo) error {
+	h.logger.Debug().Int64("user_id", userID).Str("media_type", string(mediaInfo.Type)).Str("url", mediaInfo.URL).Msg("Sending single media")
+
+	var err error
+	for attempt := 1; attempt <= MaxRetries; attempt++ {
+		switch mediaInfo.Type {
+		case MediaTypePhoto:
+			err = h.sendPhoto(ctx, userID, text, mediaInfo)
+		case MediaTypeVideo:
+			err = h.sendVideo(ctx, userID, text, mediaInfo)
+		case MediaTypeDocument:
+			err = h.sendDocument(ctx, userID, text, mediaInfo)
+		default:
+			return fmt.Errorf("unsupported media type: %s", mediaInfo.Type)
+		}
+
+		if err == nil {
+			break
+		}
+
+		h.logger.Warn().Int64("user_id", userID).Int("attempt", attempt).Err(err).Msg("Failed to send media, retrying")
+
+		if attempt < MaxRetries {
+			time.Sleep(RetryDelay * time.Duration(attempt))
+		}
+	}
+
+	if err != nil {
+		h.logMediaSend(userID, 1, false, err)
+		return fmt.Errorf("failed to send media after %d attempts: %w", MaxRetries, err)
+	}
+
+	h.logMediaSend(userID, 1, true, nil)
+	return nil
+}
+
+// sendPhoto sends photo
+func (h *Handlers) sendPhoto(ctx context.Context, userID int64, text string, mediaInfo MediaInfo) error {
+	msgCtx, cancel := context.WithTimeout(ctx, RequestTimeout)
+	defer cancel()
+
+	_, err := h.bot.SendPhoto(msgCtx, &tgbot.SendPhotoParams{
+		ChatID:    userID,
+		Photo:     &models.InputFileString{Data: mediaInfo.URL},
+		Caption:   text,
+		ParseMode: models.ParseModeHTML,
+	})
+
+	return err
+}
+
+// sendVideo sends video
+func (h *Handlers) sendVideo(ctx context.Context, userID int64, text string, mediaInfo MediaInfo) error {
+	msgCtx, cancel := context.WithTimeout(ctx, RequestTimeout)
+	defer cancel()
+
+	_, err := h.bot.SendVideo(msgCtx, &tgbot.SendVideoParams{
+		ChatID:    userID,
+		Video:     &models.InputFileString{Data: mediaInfo.URL},
+		Caption:   text,
+		ParseMode: models.ParseModeHTML,
+	})
+
+	return err
+}
+
+// sendDocument sends document
+func (h *Handlers) sendDocument(ctx context.Context, userID int64, text string, mediaInfo MediaInfo) error {
+	msgCtx, cancel := context.WithTimeout(ctx, RequestTimeout)
+	defer cancel()
+
+	_, err := h.bot.SendDocument(msgCtx, &tgbot.SendDocumentParams{
+		ChatID:    userID,
+		Document:  &models.InputFileString{Data: mediaInfo.URL},
+		Caption:   text,
+		ParseMode: models.ParseModeHTML,
+	})
+
+	return err
+}
+
+// sendMediaGroup sends media group (2-10 files)
+func (h *Handlers) sendMediaGroup(ctx context.Context, userID int64, text string, mediaInfos []MediaInfo) error {
+	h.logger.Debug().Int64("user_id", userID).Int("media_count", len(mediaInfos)).Msg("Sending media group")
+
+	if len(mediaInfos) == 1 {
+		return h.sendSingleMedia(ctx, userID, text, mediaInfos[0])
+	}
+
+	if err := h.sendSingleMedia(ctx, userID, text, mediaInfos[0]); err != nil {
+		return fmt.Errorf("failed to send first media: %w", err)
+	}
+
+	for i := 1; i < len(mediaInfos); i++ {
+		if err := h.sendSingleMedia(ctx, userID, "", mediaInfos[i]); err != nil {
+			h.logger.Error().Int64("user_id", userID).Int("media_index", i).Err(err).Msg("Failed to send media in group")
+		}
+
+		if i < len(mediaInfos)-1 {
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(MessageSplitTimeout):
+			}
+		}
+	}
+
+	h.logMediaSend(userID, len(mediaInfos), true, nil)
+	return nil
+}
+
+// sendMultipleMediaGroups sends multiple media groups (more than 10 files)
+func (h *Handlers) sendMultipleMediaGroups(ctx context.Context, userID int64, text string, mediaInfos []MediaInfo) error {
+	h.logger.Info().Int64("user_id", userID).Int("total_media", len(mediaInfos)).Msg("Sending multiple media groups")
+
+	var groups [][]MediaInfo
+	for i := 0; i < len(mediaInfos); i += MaxMediaGroupSize {
+		end := i + MaxMediaGroupSize
+		if end > len(mediaInfos) {
+			end = len(mediaInfos)
+		}
+		groups = append(groups, mediaInfos[i:end])
+	}
+
+	totalGroups := len(groups)
+	successCount := 0
+
+	if err := h.sendMediaGroup(ctx, userID, text, groups[0]); err != nil {
+		h.logger.Error().Int64("user_id", userID).Int("group", 1).Err(err).Msg("Failed to send first media group")
+	} else {
+		successCount++
+	}
+
+	for i := 1; i < totalGroups; i++ {
+		groupText := ""
+		if totalGroups > 1 {
+			groupText = fmt.Sprintf("<i>(Медиа %d/%d)</i>", i+1, totalGroups)
+		}
+
+		if err := h.sendMediaGroup(ctx, userID, groupText, groups[i]); err != nil {
+			h.logger.Error().Int64("user_id", userID).Int("group", i+1).Err(err).Msg("Failed to send media group")
+		} else {
+			successCount++
+		}
+
+		if i < totalGroups-1 {
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(MessageSplitTimeout):
+			}
+		}
+	}
+
+	h.logger.Info().Int64("user_id", userID).Int("success_groups", successCount).Int("total_groups", totalGroups).Msg("Finished sending multiple media groups")
+
+	if successCount == 0 {
+		return fmt.Errorf("failed to send all media groups")
+	}
+
+	if successCount < totalGroups {
+		return fmt.Errorf("sent only %d out of %d media groups", successCount, totalGroups)
+	}
+
+	return nil
+}
+
+// logMediaSend logs media send result
+func (h *Handlers) logMediaSend(userID int64, mediaCount int, success bool, err error) {
+	logEvent := h.logger.Info()
+	if !success {
+		logEvent = h.logger.Error()
+	}
+
+	logEvent.Int64("user_id", userID).Int("media_count", mediaCount).Bool("success", success)
+
+	if err != nil {
+		logEvent.Err(err)
+	}
+
+	logEvent.Msg("Media send attempt completed")
+}
+
+// parseChannels parses and validates channels from command arguments
+func (h *Handlers) parseChannels(text, command string) ([]string, error) {
+	args := strings.TrimSpace(strings.TrimPrefix(text, command))
+	if args == "" {
+		return nil, nil
+	}
+
+	rawChannels := strings.Fields(args)
+	validChannels := make([]string, 0, len(rawChannels))
+
+	for _, channel := range rawChannels {
+		if !strings.HasPrefix(channel, "@") {
+			return nil, fmt.Errorf("неверный формат канала '%s'. Канал должен начинаться с @", channel)
+		}
+
+		channelName := strings.TrimPrefix(channel, "@")
+		if len(channelName) == 0 {
+			return nil, fmt.Errorf("неверный формат канала '%s'. Укажите название канала после @", channel)
+		}
+
+		if !isValidChannelName(channelName) {
+			return nil, fmt.Errorf("неверные символы в названии канала '%s'. Допустимы только буквы, цифры и подчеркивания", channel)
+		}
+
+		validChannels = append(validChannels, channel)
+	}
+
+	return validChannels, nil
+}
+
+// isValidChannelName checks channel name validity
+func isValidChannelName(name string) bool {
+	for _, char := range name {
+		if !isValidChannelChar(char) {
+			return false
+		}
+	}
+	return true
+}
+
+// isValidChannelChar checks channel character validity
+func isValidChannelChar(char rune) bool {
+	return (char >= 'a' && char <= 'z') ||
+		(char >= 'A' && char <= 'Z') ||
+		(char >= '0' && char <= '9') ||
+		char == '_'
+}
+
+// logCommand logs successful commands
+func (h *Handlers) logCommand(userID int64, command, result string) {
+	h.logger.Info().Int64("user_id", userID).Str("command", command).Str("result", result).Msg("Telegram command processed")
+}
+
+// logError logs command errors
+func (h *Handlers) logError(userID int64, command string, err error) {
+	h.logger.Error().Int64("user_id", userID).Str("command", command).Err(err).Msg("Telegram command failed")
+}

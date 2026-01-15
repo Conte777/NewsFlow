@@ -1,0 +1,29 @@
+syntax = "proto3";
+
+package subscription.v1;
+
+option go_package = "github.com/Conte777/NewsFlow/pkg/proto/subscription/v1;subscriptionv1";
+
+// SubscriptionService provides subscription management operations
+service SubscriptionService {
+  // GetUserSubscriptions returns all active subscriptions for a user
+  rpc GetUserSubscriptions(GetUserSubscriptionsRequest) returns (GetUserSubscriptionsResponse);
+}
+
+// GetUserSubscriptionsRequest is the request for GetUserSubscriptions
+message GetUserSubscriptionsRequest {
+  int64 user_id = 1;
+}
+
+// GetUserSubscriptionsResponse is the response for GetUserSubscriptions
+message GetUserSubscriptionsResponse {
+  repeated Subscription subscriptions = 1;
+}
+
+// Subscription represents a user's subscription to a channel
+message Subscription {
+  int64 user_id = 1;
+  string channel_id = 2;
+  string channel_name = 3;
+  bool is_active = 4;
+}

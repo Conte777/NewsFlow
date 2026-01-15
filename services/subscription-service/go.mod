@@ -3,13 +3,17 @@ module github.com/Conte777/NewsFlow/services/subscription-service
 go 1.24.0
 
 require (
+	github.com/Conte777/NewsFlow/pkg/proto v0.0.0
 	github.com/IBM/sarama v1.46.3
 	github.com/golang-migrate/migrate/v4 v4.19.1
 	github.com/joho/godotenv v1.5.1
 	github.com/rs/zerolog v1.34.0
+	google.golang.org/grpc v1.74.2
 	gorm.io/driver/postgres v1.5.4
 	gorm.io/gorm v1.25.5
 )
+
+replace github.com/Conte777/NewsFlow/pkg/proto => ../../pkg/proto
 
 require (
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
@@ -40,4 +44,6 @@ require (
 	golang.org/x/sync v0.18.0 // indirect
 	golang.org/x/sys v0.38.0 // indirect
 	golang.org/x/text v0.31.0 // indirect
+	google.golang.org/genproto/googleapis/rpc v0.0.0-20250818200422-3122310a409c // indirect
+	google.golang.org/protobuf v1.36.7 // indirect
 )
