@@ -5,13 +5,15 @@ import (
 
 	"github.com/Conte777/NewsFlow/services/account-service/config"
 	"github.com/Conte777/NewsFlow/services/account-service/internal/domain"
+	"github.com/Conte777/NewsFlow/services/account-service/internal/domain/channel/deps"
 	"github.com/rs/zerolog"
 	"go.uber.org/fx"
 )
 
-// Module provides Kafka producer for fx DI
+// Module provides Kafka producer and consumer for fx DI
 var Module = fx.Module("kafka",
 	fx.Provide(NewKafkaProducerFx),
+	fx.Invoke(registerKafkaConsumer),
 )
 
 // NewKafkaProducerFx creates a Kafka producer for fx DI
@@ -36,4 +38,40 @@ func NewKafkaProducerFx(
 	})
 
 	return producer, nil
+}
+
+// registerKafkaConsumer creates and registers Kafka consumer with lifecycle hooks
+func registerKafkaConsumer(
+	lc fx.Lifecycle,
+	kafkaCfg *config.KafkaConfig,
+	handler deps.SubscriptionEventHandler,
+	logger zerolog.Logger,
+) error {
+	topics := []string{
+		kafkaCfg.TopicSubscriptionsCreated,
+		kafkaCfg.TopicSubscriptionsDeleted,
+	}
+
+	consumer, err := NewKafkaConsumer(
+		kafkaCfg.Brokers,
+		kafkaCfg.GroupID,
+		topics,
+		handler,
+		logger.With().Str("component", "kafka-consumer").Logger(),
+	)
+	if err != nil {
+		return err
+	}
+
+	lc.Append(fx.Hook{
+		OnStart: func(ctx context.Context) error {
+			consumer.Start(ctx)
+			return nil
+		},
+		OnStop: func(ctx context.Context) error {
+			return consumer.Close()
+		},
+	})
+
+	return nil
 }
