@@ -5,7 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"time"
+	"strconv"
 
 	"github.com/IBM/sarama"
 	"github.com/rs/zerolog"
@@ -50,22 +50,22 @@ func NewProducer(cfg *config.KafkaConfig, logger zerolog.Logger) (deps.Subscript
 // SendSubscriptionCreated sends subscription created event to Kafka
 func (p *Producer) SendSubscriptionCreated(ctx context.Context, subscription *entities.Subscription) error {
 	event := map[string]interface{}{
-		"user_id":      subscription.UserID,
+		"type":         "subscription_created",
+		"user_id":      strconv.FormatInt(subscription.UserID, 10),
 		"channel_id":   subscription.ChannelID,
 		"channel_name": subscription.ChannelName,
-		"created_at":   time.Now().UTC().Format(time.RFC3339),
 	}
-	return p.sendEvent(ctx, "subscriptions.created", event)
+	return p.sendEvent(ctx, "subscription.created", event)
 }
 
 // SendSubscriptionDeleted sends subscription deleted event to Kafka
 func (p *Producer) SendSubscriptionDeleted(ctx context.Context, userID int64, channelID string) error {
 	event := map[string]interface{}{
-		"user_id":    userID,
+		"type":       "subscription_cancelled",
+		"user_id":    strconv.FormatInt(userID, 10),
 		"channel_id": channelID,
-		"deleted_at": time.Now().UTC().Format(time.RFC3339),
 	}
-	return p.sendEvent(ctx, "subscriptions.deleted", event)
+	return p.sendEvent(ctx, "subscription.cancelled", event)
 }
 
 // sendEvent sends an event to specified Kafka topic
