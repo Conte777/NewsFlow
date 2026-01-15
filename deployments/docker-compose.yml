@@ -36,15 +36,14 @@ services:
       - telegram-news-network
     volumes:
       - kafka-data:/var/lib/kafka/data
-    command: >
-      bash -c "
-      # Форматирование хранилища для KRaft (только при первом запуске)
-      if [ ! -f /var/lib/kafka/data/meta.properties ]; then
-        /usr/bin/kafka-storage format -t $${CLUSTER_ID} -c /etc/kafka/kraft/server.properties;
-      fi;
-      # Запуск Kafka
-      /etc/confluent/docker/run
-      "
+    command:
+      - bash
+      - -c
+      - |
+        if [ ! -f /var/lib/kafka/data/meta.properties ]; then
+          /usr/bin/kafka-storage format -t $${CLUSTER_ID} -c /etc/kafka/kraft/server.properties
+        fi
+        /etc/confluent/docker/run
 
   # Account Service - управление Telegram аккаунтами и сбор новостей
   account-service:
@@ -55,6 +54,8 @@ services:
     depends_on:
       - kafka
       - postgres
+    env_file:
+      - ../services/account-service/.env
     environment:
       # Database Configuration
       DATABASE_HOST: postgres
@@ -64,11 +65,8 @@ services:
       DATABASE_NAME: accounts_db
       DATABASE_SSLMODE: disable
 
-      # Telegram Configuration
-      TELEGRAM_API_ID: ${TELEGRAM_API_ID}
-      TELEGRAM_API_HASH: ${TELEGRAM_API_HASH}
+      # Telegram Configuration (API credentials from env_file)
       TELEGRAM_SESSION_DIR: /app/sessions
-      TELEGRAM_ACCOUNTS: ${TELEGRAM_ACCOUNTS}
       TELEGRAM_MIN_REQUIRED_ACCOUNTS: ${TELEGRAM_MIN_REQUIRED_ACCOUNTS:-1}
 
       # Kafka Configuration

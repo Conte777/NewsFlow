@@ -1,5 +1,5 @@
 # Build stage
-FROM golang:1.21-alpine AS builder
+FROM golang:1.24-alpine AS builder
 
 WORKDIR /app
 
@@ -25,6 +25,9 @@ WORKDIR /root/
 
 # Copy the binary from builder
 COPY --from=builder /app/account-service .
+
+# Copy migrations
+COPY --from=builder /app/migrations ./migrations
 
 # Create sessions directory
 RUN mkdir -p sessions

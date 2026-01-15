@@ -7,6 +7,7 @@ import (
 	"github.com/YarosTrubechkoi/telegram-news-feed/account-service/internal/domain"
 	"github.com/rs/zerolog"
 	"github.com/valyala/fasthttp"
+	"go.uber.org/fx"
 )
 
 // HealthStatus represents the overall health status
@@ -40,18 +41,23 @@ type HealthHandler struct {
 	logger         zerolog.Logger
 }
 
+// HealthHandlerParams defines parameters for HealthHandler with optional dependencies
+type HealthHandlerParams struct {
+	fx.In
+
+	AccountManager domain.AccountManager
+	KafkaProducer  domain.KafkaProducer
+	KafkaConsumer  domain.KafkaConsumer `optional:"true"`
+	Logger         zerolog.Logger
+}
+
 // NewHealthHandler creates a new health check handler
-func NewHealthHandler(
-	accountManager domain.AccountManager,
-	kafkaProducer domain.KafkaProducer,
-	kafkaConsumer domain.KafkaConsumer,
-	logger zerolog.Logger,
-) *HealthHandler {
+func NewHealthHandler(params HealthHandlerParams) *HealthHandler {
 	return &HealthHandler{
-		accountManager: accountManager,
-		kafkaProducer:  kafkaProducer,
-		kafkaConsumer:  kafkaConsumer,
-		logger:         logger,
+		accountManager: params.AccountManager,
+		kafkaProducer:  params.KafkaProducer,
+		kafkaConsumer:  params.KafkaConsumer,
+		logger:         params.Logger,
 	}
 }
 
