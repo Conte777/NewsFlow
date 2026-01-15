@@ -14,8 +14,6 @@ require (
 	gorm.io/gorm v1.25.5
 )
 
-replace github.com/Conte777/NewsFlow/pkg/proto => ../../pkg/proto
-
 require (
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
 	github.com/eapache/go-resiliency v1.7.0 // indirect

@@ -7,20 +7,20 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/Conte777/NewsFlow/services/subscription-service/internal/domain/subscription/deps"
 	"github.com/Conte777/NewsFlow/services/subscription-service/internal/domain/subscription/dto"
 	suberrors "github.com/Conte777/NewsFlow/services/subscription-service/internal/domain/subscription/errors"
-	"github.com/Conte777/NewsFlow/services/subscription-service/internal/domain/subscription/usecase/buissines"
 	"github.com/rs/zerolog"
 )
 
 type EventHandler struct {
-	usecase   *buissines.UseCase
+	usecase   deps.SubscriptionUseCase
 	logger    zerolog.Logger
 	processed uint64
 	errors    uint64
 }
 
-func NewEventHandler(usecase *buissines.UseCase, logger zerolog.Logger) *EventHandler {
+func NewEventHandler(usecase deps.SubscriptionUseCase, logger zerolog.Logger) *EventHandler {
 	return &EventHandler{
 		usecase: usecase,
 		logger:  logger,
