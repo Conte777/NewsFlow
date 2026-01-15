@@ -13,7 +13,7 @@ import (
 )
 
 const (
-	topicNewsDelivery = "news.delivery"
+	topicNewsDelivery = "news.deliver"
 )
 
 type NewsDeliveryMessage struct {

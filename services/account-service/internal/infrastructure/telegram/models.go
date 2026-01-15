@@ -8,6 +8,7 @@ type AccountModel struct {
 	PhoneNumber     string     `gorm:"uniqueIndex;not null;size:32"`
 	PhoneHash       string     `gorm:"uniqueIndex;not null;size:64"`
 	Status          string     `gorm:"not null;default:'inactive';size:32"`
+	Enabled         bool       `gorm:"not null;default:true"`
 	LastConnectedAt *time.Time `gorm:""`
 	LastError       *string    `gorm:"type:text"`
 	CreatedAt       time.Time  `gorm:"autoCreateTime"`

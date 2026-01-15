@@ -13,6 +13,7 @@ CREATE TABLE IF NOT EXISTS accounts (
     phone_number VARCHAR(32) NOT NULL UNIQUE,
     phone_hash VARCHAR(64) NOT NULL UNIQUE,
     status VARCHAR(32) NOT NULL DEFAULT 'inactive',
+    enabled BOOLEAN NOT NULL DEFAULT true,
     last_connected_at TIMESTAMP,
     last_error TEXT,
     created_at TIMESTAMP NOT NULL DEFAULT NOW(),
@@ -32,6 +33,7 @@ CREATE TABLE IF NOT EXISTS sessions (
 -- Create indexes for better query performance
 CREATE INDEX idx_accounts_phone_hash ON accounts(phone_hash);
 CREATE INDEX idx_accounts_status ON accounts(status);
+CREATE INDEX idx_accounts_enabled ON accounts(enabled);
 CREATE INDEX idx_sessions_account_id ON sessions(account_id);
 
 -- Create triggers for automatic updated_at updates

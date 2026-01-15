@@ -346,6 +346,70 @@ func (m *accountManager) RemoveAccount(accountID string) error {
 	return nil
 }
 
+// SyncAccounts discovers and initializes new accounts from the provided phone numbers.
+// It compares the given list with currently managed accounts and only initializes new ones.
+// Returns a report about newly initialized accounts.
+func (m *accountManager) SyncAccounts(ctx context.Context, cfg domain.AccountInitConfig) *domain.InitializationReport {
+	if m.isShutdown.Load() {
+		cfg.Logger.Warn().Msg("Cannot sync accounts: manager is shut down")
+		return &domain.InitializationReport{
+			TotalAccounts: 0,
+			Errors:        make(map[string]error),
+		}
+	}
+
+	// Get currently managed account IDs
+	m.mu.RLock()
+	existingAccounts := make(map[string]bool, len(m.accountIDs))
+	for _, id := range m.accountIDs {
+		existingAccounts[id] = true
+	}
+	m.mu.RUnlock()
+
+	// Find new accounts (not yet in the manager)
+	newAccounts := make([]string, 0)
+	for _, phone := range cfg.Accounts {
+		if !existingAccounts[phone] {
+			newAccounts = append(newAccounts, phone)
+		}
+	}
+
+	if len(newAccounts) == 0 {
+		return &domain.InitializationReport{
+			TotalAccounts:      0,
+			SuccessfulAccounts: 0,
+			FailedAccounts:     0,
+			Errors:             make(map[string]error),
+		}
+	}
+
+	cfg.Logger.Info().
+		Int("new_accounts", len(newAccounts)).
+		Msg("Discovered new accounts to initialize")
+
+	// Initialize only new accounts
+	syncCfg := domain.AccountInitConfig{
+		APIID:         cfg.APIID,
+		APIHash:       cfg.APIHash,
+		SessionDir:    cfg.SessionDir,
+		Accounts:      newAccounts,
+		Logger:        cfg.Logger,
+		MaxConcurrent: cfg.MaxConcurrent,
+	}
+
+	return m.InitializeAccounts(ctx, syncCfg)
+}
+
+// GetManagedPhoneNumbers returns a list of phone numbers currently managed by the manager
+func (m *accountManager) GetManagedPhoneNumbers() []string {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	result := make([]string, len(m.accountIDs))
+	copy(result, m.accountIDs)
+	return result
+}
+
 // Shutdown gracefully disconnects all managed accounts
 //
 // The method implements the following behavior:

@@ -64,6 +64,14 @@ type AccountManager interface {
 	// Returns a detailed report about initialization success/failure.
 	InitializeAccounts(ctx context.Context, cfg AccountInitConfig) *InitializationReport
 
+	// SyncAccounts discovers and initializes new accounts from the provided phone numbers.
+	// It compares the given list with currently managed accounts and only initializes new ones.
+	// Returns a report about newly initialized accounts.
+	SyncAccounts(ctx context.Context, cfg AccountInitConfig) *InitializationReport
+
+	// GetManagedPhoneNumbers returns a list of phone numbers currently managed by the manager
+	GetManagedPhoneNumbers() []string
+
 	// Shutdown gracefully disconnects all managed accounts
 	// It disconnects accounts sequentially with proper error handling.
 	// The context should have a timeout (recommended 30 seconds).

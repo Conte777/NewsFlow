@@ -39,11 +39,11 @@ func (c *DatabaseConfig) GetDSN() string {
 
 // TelegramConfig holds Telegram MTProto configuration
 type TelegramConfig struct {
-	APIID              int
-	APIHash            string
-	SessionDir         string
-	Accounts           []string // List of phone numbers or session identifiers
-	MinRequiredAccounts int      // Minimum number of accounts required to start service
+	APIID               int
+	APIHash             string
+	SessionDir          string
+	AccountSyncInterval time.Duration // Interval for checking new accounts in DB
+	MinRequiredAccounts int           // Minimum number of accounts required to start service
 }
 
 // KafkaConfig holds Kafka configuration
@@ -98,17 +98,12 @@ func Load() (*Config, error) {
 		return nil, fmt.Errorf("invalid SERVICE_SHUTDOWN_TIMEOUT: %w", err)
 	}
 
-	accounts := []string{}
-	accountsStr := getEnv("TELEGRAM_ACCOUNTS", "")
-	if accountsStr != "" {
-		accounts = strings.Split(accountsStr, ",")
+	accountSyncInterval, err := time.ParseDuration(getEnv("TELEGRAM_ACCOUNT_SYNC_INTERVAL", "1m"))
+	if err != nil {
+		return nil, fmt.Errorf("invalid TELEGRAM_ACCOUNT_SYNC_INTERVAL: %w", err)
 	}
 
 	minRequiredAccounts := 0
-	if len(accounts) > 0 {
-		// Default: require at least 50% of configured accounts
-		minRequiredAccounts = (len(accounts) + 1) / 2
-	}
 	if minStr := getEnv("TELEGRAM_MIN_REQUIRED_ACCOUNTS", ""); minStr != "" {
 		minReq, err := strconv.Atoi(minStr)
 		if err != nil {
@@ -127,10 +122,10 @@ func Load() (*Config, error) {
 			SSLMode:  getEnv("DATABASE_SSLMODE", "disable"),
 		},
 		Telegram: TelegramConfig{
-			APIID:              apiID,
-			APIHash:            getEnv("TELEGRAM_API_HASH", ""),
-			SessionDir:         getEnv("TELEGRAM_SESSION_DIR", "./sessions"),
-			Accounts:           accounts,
+			APIID:               apiID,
+			APIHash:             getEnv("TELEGRAM_API_HASH", ""),
+			SessionDir:          getEnv("TELEGRAM_SESSION_DIR", "./sessions"),
+			AccountSyncInterval: accountSyncInterval,
 			MinRequiredAccounts: minRequiredAccounts,
 		},
 		Kafka: KafkaConfig{
@@ -176,9 +171,8 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("TELEGRAM_MIN_REQUIRED_ACCOUNTS cannot be negative")
 	}
 
-	if c.Telegram.MinRequiredAccounts > len(c.Telegram.Accounts) {
-		return fmt.Errorf("TELEGRAM_MIN_REQUIRED_ACCOUNTS (%d) cannot exceed total accounts (%d)",
-			c.Telegram.MinRequiredAccounts, len(c.Telegram.Accounts))
+	if c.Telegram.AccountSyncInterval < 10*time.Second {
+		return fmt.Errorf("TELEGRAM_ACCOUNT_SYNC_INTERVAL must be at least 10 seconds, got %v", c.Telegram.AccountSyncInterval)
 	}
 
 	// Kafka validation

@@ -31,30 +31,38 @@
 ### Схема взаимодействия
 
 ```
-┌─────────────┐      ┌──────────────────┐      ┌──────────────┐
-│   Bot       │─────→│   Subscription   │─────→│   Account    │
-│   Service   │      │   Service        │      │   Service    │
-└─────────────┘      └──────────────────┘      └──────────────┘
-       │                                                │
-       │             ┌──────────────┐                  │
-       └────────────→│    News      │←─────────────────┘
-                     │   Service    │
-                     └──────────────┘
+┌─────────────┐         ┌──────────────┐         ┌──────────────┐
+│     Bot     │  Kafka  │ Subscription │  Kafka  │   Account    │
+│   Service   │────────→│   Service    │────────→│   Service    │
+└──────┬──────┘         └──────┬───────┘         └──────┬───────┘
+       │                       │                        │
+       │ gRPC                  │ gRPC                   │ Kafka
+       │                       ↓                        │ news.received
+       │                ┌──────────────┐                │
+       └───────────────→│    News      │←───────────────┘
+            Kafka       │   Service    │
+         news.deliver   └──────────────┘
 ```
+
+**Коммуникация:**
+- **Kafka**: subscription.created/cancelled, news.received, news.deliver
+- **gRPC**: GetUserSubscriptions, GetChannelSubscribers
 
 ### Kafka Topics
 
-- `subscriptions.created` - Новая подписка создана
-- `subscriptions.deleted` - Подписка удалена
+- `subscription.created` - Новая подписка создана
+- `subscription.cancelled` - Подписка отменена
 - `news.received` - Новая новость получена с канала
-- `news.deliver` - Отправить новость пользователю
+- `news.deliver` - Доставка новости пользователю
 
 ## Технологический стек
 
-- **Язык**: Go 1.21+
+- **Язык**: Go 1.24+
+- **DI Framework**: Uber FX
 - **Telegram Bot API**: github.com/go-telegram/bot
 - **Telegram MTProto**: github.com/gotd/td
 - **Message Broker**: Apache Kafka
+- **Inter-service**: gRPC + Protobuf
 - **Базы данных**: PostgreSQL (GORM)
 - **Логирование**: zerolog
 - **Конфигурация**: Environment variables
