@@ -59,14 +59,17 @@ func registerKafkaConsumer(
 		return err
 	}
 
+	consumerCtx, cancelConsumer := context.WithCancel(context.Background())
+
 	lc.Append(fx.Hook{
 		OnStart: func(ctx context.Context) error {
-			consumer.Start(ctx)
+			consumer.Start(consumerCtx)
 			log.Info().Msg("kafka consumer started")
 			return nil
 		},
 		OnStop: func(ctx context.Context) error {
 			log.Info().Msg("stopping kafka consumer...")
+			cancelConsumer()
 			return consumer.Close()
 		},
 	})
