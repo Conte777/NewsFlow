@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/joho/godotenv"
 	"go.uber.org/fx"
@@ -11,10 +12,11 @@ import (
 
 // Config holds all configuration for the news service
 type Config struct {
-	Database DatabaseConfig
-	Kafka    KafkaConfig
-	Logging  LoggingConfig
-	Service  ServiceConfig
+	Database            DatabaseConfig
+	Kafka               KafkaConfig
+	Logging             LoggingConfig
+	Service             ServiceConfig
+	SubscriptionService SubscriptionServiceConfig
 }
 
 // DatabaseConfig holds database configuration
@@ -44,15 +46,22 @@ type ServiceConfig struct {
 	Port string
 }
 
+// SubscriptionServiceConfig holds subscription service client configuration
+type SubscriptionServiceConfig struct {
+	URL     string
+	Timeout time.Duration
+}
+
 // Result is fx.Out struct for providing config dependencies
 type Result struct {
 	fx.Out
 
-	Config         *Config
-	DatabaseConfig *DatabaseConfig
-	KafkaConfig    *KafkaConfig
-	LoggingConfig  *LoggingConfig
-	ServiceConfig  *ServiceConfig
+	Config                    *Config
+	DatabaseConfig            *DatabaseConfig
+	KafkaConfig               *KafkaConfig
+	LoggingConfig             *LoggingConfig
+	ServiceConfig             *ServiceConfig
+	SubscriptionServiceConfig *SubscriptionServiceConfig
 }
 
 // Out returns fx-compatible config result
@@ -63,11 +72,12 @@ func Out() (Result, error) {
 	}
 
 	return Result{
-		Config:         cfg,
-		DatabaseConfig: &cfg.Database,
-		KafkaConfig:    &cfg.Kafka,
-		LoggingConfig:  &cfg.Logging,
-		ServiceConfig:  &cfg.Service,
+		Config:                    cfg,
+		DatabaseConfig:            &cfg.Database,
+		KafkaConfig:               &cfg.Kafka,
+		LoggingConfig:             &cfg.Logging,
+		ServiceConfig:             &cfg.Service,
+		SubscriptionServiceConfig: &cfg.SubscriptionService,
 	}, nil
 }
 
@@ -94,6 +104,10 @@ func Load() (*Config, error) {
 		Service: ServiceConfig{
 			Name: getEnv("SERVICE_NAME", "news-service"),
 			Port: getEnv("SERVICE_PORT", "8083"),
+		},
+		SubscriptionService: SubscriptionServiceConfig{
+			URL:     getEnv("SUBSCRIPTION_SERVICE_URL", "http://subscription-service:8082"),
+			Timeout: getEnvDuration("SUBSCRIPTION_SERVICE_TIMEOUT", 30*time.Second),
 		},
 	}
 
@@ -140,4 +154,17 @@ func getEnv(key, defaultValue string) string {
 		return defaultValue
 	}
 	return value
+}
+
+// getEnvDuration gets environment variable as duration with default value
+func getEnvDuration(key string, defaultValue time.Duration) time.Duration {
+	value := os.Getenv(key)
+	if value == "" {
+		return defaultValue
+	}
+	duration, err := time.ParseDuration(value)
+	if err != nil {
+		return defaultValue
+	}
+	return duration
 }

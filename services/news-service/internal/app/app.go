@@ -6,6 +6,7 @@ import (
 	"github.com/yourusername/telegram-news-feed/news-service/config"
 	"github.com/yourusername/telegram-news-feed/news-service/internal/domain"
 	"github.com/yourusername/telegram-news-feed/news-service/internal/infrastructure/database"
+	"github.com/yourusername/telegram-news-feed/news-service/internal/infrastructure/kafka"
 	"github.com/yourusername/telegram-news-feed/news-service/internal/infrastructure/logger"
 )
 
@@ -15,6 +16,7 @@ func CreateApp() fx.Option {
 		fx.Provide(config.Out),
 		fx.Provide(logger.NewLogger),
 		fx.Provide(database.NewPostgresDB),
+		fx.Provide(kafka.NewProducer),
 		domain.Module,
 	)
 }
