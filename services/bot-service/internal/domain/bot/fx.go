@@ -6,9 +6,12 @@ import (
 	"github.com/rs/zerolog"
 	"go.uber.org/fx"
 
+	"github.com/Conte777/newsflow/services/bot-service/config"
 	kafkaDelivery "github.com/Conte777/newsflow/services/bot-service/internal/domain/bot/delivery/kafka"
 	telegramDelivery "github.com/Conte777/newsflow/services/bot-service/internal/domain/bot/delivery/telegram"
+	"github.com/Conte777/newsflow/services/bot-service/internal/domain/bot/deps"
 	kafkaRepo "github.com/Conte777/newsflow/services/bot-service/internal/domain/bot/repository/kafka"
+	subscriptionClient "github.com/Conte777/newsflow/services/bot-service/internal/domain/bot/repository/grpc_clients/subscription"
 	"github.com/Conte777/newsflow/services/bot-service/internal/domain/bot/usecase/buissines"
 	"github.com/Conte777/newsflow/services/bot-service/internal/domain/bot/workers"
 	"github.com/Conte777/newsflow/services/bot-service/internal/infrastructure/telegram"
@@ -18,6 +21,7 @@ import (
 var Module = fx.Module("bot",
 	// Repository
 	fx.Provide(kafkaRepo.NewProducer),
+	fx.Provide(provideSubscriptionRepository),
 
 	// UseCase
 	fx.Provide(buissines.NewUseCase),
@@ -54,6 +58,11 @@ func wireAndRegister(
 
 	// Register Telegram command routes
 	router.RegisterRoutes(bot.Raw())
+}
+
+// provideSubscriptionRepository creates subscription repository (gRPC client)
+func provideSubscriptionRepository(cfg *config.GRPCConfig, logger zerolog.Logger) (deps.SubscriptionRepository, error) {
+	return subscriptionClient.NewClient(cfg.SubscriptionServiceAddr, logger)
 }
 
 // RawBotProvider extracts raw tgbot.Bot from infrastructure Bot

@@ -17,18 +17,20 @@ import (
 
 // UseCase contains business logic for bot operations
 type UseCase struct {
-	producer deps.SubscriptionEventProducer
-	sender   deps.TelegramSender
-	logger   zerolog.Logger
+	producer   deps.SubscriptionEventProducer
+	repository deps.SubscriptionRepository
+	sender     deps.TelegramSender
+	logger     zerolog.Logger
 }
 
 // NewUseCase creates a new UseCase instance
 // Note: sender is not passed here to break cyclic dependency
 // Use SetSender after creating TelegramHandlers
-func NewUseCase(producer deps.SubscriptionEventProducer, logger zerolog.Logger) *UseCase {
+func NewUseCase(producer deps.SubscriptionEventProducer, repository deps.SubscriptionRepository, logger zerolog.Logger) *UseCase {
 	return &UseCase{
-		producer: producer,
-		logger:   logger,
+		producer:   producer,
+		repository: repository,
+		logger:     logger,
 	}
 }
 
@@ -198,11 +200,22 @@ func (uc *UseCase) HandleListSubscriptions(ctx context.Context, userID int64) (*
 		Int64("user_id", userID).
 		Msg("Listing user subscriptions")
 
-	// TODO: implement when SubscriptionRepository is available
-	// For now, return empty list with a message
-	return &dto.SubscriptionListResponse{
-		Subscriptions: []dto.SubscriptionItem{},
-	}, nil
+	subs, err := uc.repository.GetUserSubscriptions(ctx, userID)
+	if err != nil {
+		uc.logger.Error().Err(err).Int64("user_id", userID).Msg("Failed to get subscriptions")
+		return nil, err
+	}
+
+	items := make([]dto.SubscriptionItem, len(subs))
+	for i, sub := range subs {
+		items[i] = dto.SubscriptionItem{
+			ChannelID:   sub.ChannelID,
+			ChannelName: sub.ChannelName,
+			CreatedAt:   sub.CreatedAt,
+		}
+	}
+
+	return &dto.SubscriptionListResponse{Subscriptions: items}, nil
 }
 
 // SendNews sends news to user via Telegram

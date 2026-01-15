@@ -13,8 +13,14 @@ import (
 type Config struct {
 	Telegram TelegramConfig
 	Kafka    KafkaConfig
+	GRPC     GRPCConfig
 	Logging  LoggingConfig
 	Service  ServiceConfig
+}
+
+// GRPCConfig holds gRPC client configuration
+type GRPCConfig struct {
+	SubscriptionServiceAddr string
 }
 
 // TelegramConfig holds Telegram bot configuration
@@ -46,6 +52,7 @@ type Result struct {
 	Config   *Config
 	Telegram *TelegramConfig
 	Kafka    *KafkaConfig
+	GRPC     *GRPCConfig
 	Logging  *LoggingConfig
 	Service  *ServiceConfig
 }
@@ -61,6 +68,7 @@ func Out() (Result, error) {
 		Config:   cfg,
 		Telegram: &cfg.Telegram,
 		Kafka:    &cfg.Kafka,
+		GRPC:     &cfg.GRPC,
 		Logging:  &cfg.Logging,
 		Service:  &cfg.Service,
 	}, nil
@@ -78,6 +86,9 @@ func Load() (*Config, error) {
 		Kafka: KafkaConfig{
 			Brokers: strings.Split(getEnv("KAFKA_BROKERS", "localhost:9093"), ","),
 			GroupID: getEnv("KAFKA_GROUP_ID", "bot-service-group"),
+		},
+		GRPC: GRPCConfig{
+			SubscriptionServiceAddr: getEnv("SUBSCRIPTION_SERVICE_GRPC_ADDR", "localhost:50051"),
 		},
 		Logging: LoggingConfig{
 			Level: getEnv("LOG_LEVEL", "info"),
