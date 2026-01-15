@@ -2,7 +2,7 @@
 // versions:
 // 	protoc-gen-go v1.36.11
 // 	protoc        v5.29.5
-// source: pkg/proto/subscription/v1/subscription.proto
+// source: subscription/v1/subscription.proto
 
 package subscriptionv1
 
@@ -31,7 +31,7 @@ type GetUserSubscriptionsRequest struct {
 
 func (x *GetUserSubscriptionsRequest) Reset() {
 	*x = GetUserSubscriptionsRequest{}
-	mi := &file_pkg_proto_subscription_v1_subscription_proto_msgTypes[0]
+	mi := &file_subscription_v1_subscription_proto_msgTypes[0]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -43,7 +43,7 @@ func (x *GetUserSubscriptionsRequest) String() string {
 func (*GetUserSubscriptionsRequest) ProtoMessage() {}
 
 func (x *GetUserSubscriptionsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_pkg_proto_subscription_v1_subscription_proto_msgTypes[0]
+	mi := &file_subscription_v1_subscription_proto_msgTypes[0]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -56,7 +56,7 @@ func (x *GetUserSubscriptionsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetUserSubscriptionsRequest.ProtoReflect.Descriptor instead.
 func (*GetUserSubscriptionsRequest) Descriptor() ([]byte, []int) {
-	return file_pkg_proto_subscription_v1_subscription_proto_rawDescGZIP(), []int{0}
+	return file_subscription_v1_subscription_proto_rawDescGZIP(), []int{0}
 }
 
 func (x *GetUserSubscriptionsRequest) GetUserId() int64 {
@@ -76,7 +76,7 @@ type GetUserSubscriptionsResponse struct {
 
 func (x *GetUserSubscriptionsResponse) Reset() {
 	*x = GetUserSubscriptionsResponse{}
-	mi := &file_pkg_proto_subscription_v1_subscription_proto_msgTypes[1]
+	mi := &file_subscription_v1_subscription_proto_msgTypes[1]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -88,7 +88,7 @@ func (x *GetUserSubscriptionsResponse) String() string {
 func (*GetUserSubscriptionsResponse) ProtoMessage() {}
 
 func (x *GetUserSubscriptionsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_pkg_proto_subscription_v1_subscription_proto_msgTypes[1]
+	mi := &file_subscription_v1_subscription_proto_msgTypes[1]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -101,7 +101,7 @@ func (x *GetUserSubscriptionsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetUserSubscriptionsResponse.ProtoReflect.Descriptor instead.
 func (*GetUserSubscriptionsResponse) Descriptor() ([]byte, []int) {
-	return file_pkg_proto_subscription_v1_subscription_proto_rawDescGZIP(), []int{1}
+	return file_subscription_v1_subscription_proto_rawDescGZIP(), []int{1}
 }
 
 func (x *GetUserSubscriptionsResponse) GetSubscriptions() []*Subscription {
@@ -124,7 +124,7 @@ type Subscription struct {
 
 func (x *Subscription) Reset() {
 	*x = Subscription{}
-	mi := &file_pkg_proto_subscription_v1_subscription_proto_msgTypes[2]
+	mi := &file_subscription_v1_subscription_proto_msgTypes[2]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -136,7 +136,7 @@ func (x *Subscription) String() string {
 func (*Subscription) ProtoMessage() {}
 
 func (x *Subscription) ProtoReflect() protoreflect.Message {
-	mi := &file_pkg_proto_subscription_v1_subscription_proto_msgTypes[2]
+	mi := &file_subscription_v1_subscription_proto_msgTypes[2]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -149,7 +149,7 @@ func (x *Subscription) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Subscription.ProtoReflect.Descriptor instead.
 func (*Subscription) Descriptor() ([]byte, []int) {
-	return file_pkg_proto_subscription_v1_subscription_proto_rawDescGZIP(), []int{2}
+	return file_subscription_v1_subscription_proto_rawDescGZIP(), []int{2}
 }
 
 func (x *Subscription) GetUserId() int64 {
@@ -180,11 +180,101 @@ func (x *Subscription) GetIsActive() bool {
 	return false
 }
 
-var File_pkg_proto_subscription_v1_subscription_proto protoreflect.FileDescriptor
+// GetChannelSubscribersRequest is the request for GetChannelSubscribers
+type GetChannelSubscribersRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	ChannelId     string                 `protobuf:"bytes,1,opt,name=channel_id,json=channelId,proto3" json:"channel_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
 
-const file_pkg_proto_subscription_v1_subscription_proto_rawDesc = "" +
+func (x *GetChannelSubscribersRequest) Reset() {
+	*x = GetChannelSubscribersRequest{}
+	mi := &file_subscription_v1_subscription_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetChannelSubscribersRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetChannelSubscribersRequest) ProtoMessage() {}
+
+func (x *GetChannelSubscribersRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_subscription_v1_subscription_proto_msgTypes[3]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetChannelSubscribersRequest.ProtoReflect.Descriptor instead.
+func (*GetChannelSubscribersRequest) Descriptor() ([]byte, []int) {
+	return file_subscription_v1_subscription_proto_rawDescGZIP(), []int{3}
+}
+
+func (x *GetChannelSubscribersRequest) GetChannelId() string {
+	if x != nil {
+		return x.ChannelId
+	}
+	return ""
+}
+
+// GetChannelSubscribersResponse is the response for GetChannelSubscribers
+type GetChannelSubscribersResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	UserIds       []int64                `protobuf:"varint,1,rep,packed,name=user_ids,json=userIds,proto3" json:"user_ids,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetChannelSubscribersResponse) Reset() {
+	*x = GetChannelSubscribersResponse{}
+	mi := &file_subscription_v1_subscription_proto_msgTypes[4]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetChannelSubscribersResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetChannelSubscribersResponse) ProtoMessage() {}
+
+func (x *GetChannelSubscribersResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_subscription_v1_subscription_proto_msgTypes[4]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetChannelSubscribersResponse.ProtoReflect.Descriptor instead.
+func (*GetChannelSubscribersResponse) Descriptor() ([]byte, []int) {
+	return file_subscription_v1_subscription_proto_rawDescGZIP(), []int{4}
+}
+
+func (x *GetChannelSubscribersResponse) GetUserIds() []int64 {
+	if x != nil {
+		return x.UserIds
+	}
+	return nil
+}
+
+var File_subscription_v1_subscription_proto protoreflect.FileDescriptor
+
+const file_subscription_v1_subscription_proto_rawDesc = "" +
 	"\n" +
-	",pkg/proto/subscription/v1/subscription.proto\x12\x0fsubscription.v1\"6\n" +
+	"\"subscription/v1/subscription.proto\x12\x0fsubscription.v1\"6\n" +
 	"\x1bGetUserSubscriptionsRequest\x12\x17\n" +
 	"\auser_id\x18\x01 \x01(\x03R\x06userId\"c\n" +
 	"\x1cGetUserSubscriptionsResponse\x12C\n" +
@@ -194,59 +284,69 @@ const file_pkg_proto_subscription_v1_subscription_proto_rawDesc = "" +
 	"\n" +
 	"channel_id\x18\x02 \x01(\tR\tchannelId\x12!\n" +
 	"\fchannel_name\x18\x03 \x01(\tR\vchannelName\x12\x1b\n" +
-	"\tis_active\x18\x04 \x01(\bR\bisActive2\x8a\x01\n" +
+	"\tis_active\x18\x04 \x01(\bR\bisActive\"=\n" +
+	"\x1cGetChannelSubscribersRequest\x12\x1d\n" +
+	"\n" +
+	"channel_id\x18\x01 \x01(\tR\tchannelId\":\n" +
+	"\x1dGetChannelSubscribersResponse\x12\x19\n" +
+	"\buser_ids\x18\x01 \x03(\x03R\auserIds2\x82\x02\n" +
 	"\x13SubscriptionService\x12s\n" +
-	"\x14GetUserSubscriptions\x12,.subscription.v1.GetUserSubscriptionsRequest\x1a-.subscription.v1.GetUserSubscriptionsResponseBGZEgithub.com/Conte777/NewsFlow/pkg/proto/subscription/v1;subscriptionv1b\x06proto3"
+	"\x14GetUserSubscriptions\x12,.subscription.v1.GetUserSubscriptionsRequest\x1a-.subscription.v1.GetUserSubscriptionsResponse\x12v\n" +
+	"\x15GetChannelSubscribers\x12-.subscription.v1.GetChannelSubscribersRequest\x1a..subscription.v1.GetChannelSubscribersResponseBGZEgithub.com/Conte777/NewsFlow/pkg/proto/subscription/v1;subscriptionv1b\x06proto3"
 
 var (
-	file_pkg_proto_subscription_v1_subscription_proto_rawDescOnce sync.Once
-	file_pkg_proto_subscription_v1_subscription_proto_rawDescData []byte
+	file_subscription_v1_subscription_proto_rawDescOnce sync.Once
+	file_subscription_v1_subscription_proto_rawDescData []byte
 )
 
-func file_pkg_proto_subscription_v1_subscription_proto_rawDescGZIP() []byte {
-	file_pkg_proto_subscription_v1_subscription_proto_rawDescOnce.Do(func() {
-		file_pkg_proto_subscription_v1_subscription_proto_rawDescData = protoimpl.X.CompressGZIP(unsafe.Slice(unsafe.StringData(file_pkg_proto_subscription_v1_subscription_proto_rawDesc), len(file_pkg_proto_subscription_v1_subscription_proto_rawDesc)))
+func file_subscription_v1_subscription_proto_rawDescGZIP() []byte {
+	file_subscription_v1_subscription_proto_rawDescOnce.Do(func() {
+		file_subscription_v1_subscription_proto_rawDescData = protoimpl.X.CompressGZIP(unsafe.Slice(unsafe.StringData(file_subscription_v1_subscription_proto_rawDesc), len(file_subscription_v1_subscription_proto_rawDesc)))
 	})
-	return file_pkg_proto_subscription_v1_subscription_proto_rawDescData
+	return file_subscription_v1_subscription_proto_rawDescData
 }
 
-var file_pkg_proto_subscription_v1_subscription_proto_msgTypes = make([]protoimpl.MessageInfo, 3)
-var file_pkg_proto_subscription_v1_subscription_proto_goTypes = []any{
-	(*GetUserSubscriptionsRequest)(nil),  // 0: subscription.v1.GetUserSubscriptionsRequest
-	(*GetUserSubscriptionsResponse)(nil), // 1: subscription.v1.GetUserSubscriptionsResponse
-	(*Subscription)(nil),                 // 2: subscription.v1.Subscription
+var file_subscription_v1_subscription_proto_msgTypes = make([]protoimpl.MessageInfo, 5)
+var file_subscription_v1_subscription_proto_goTypes = []any{
+	(*GetUserSubscriptionsRequest)(nil),   // 0: subscription.v1.GetUserSubscriptionsRequest
+	(*GetUserSubscriptionsResponse)(nil),  // 1: subscription.v1.GetUserSubscriptionsResponse
+	(*Subscription)(nil),                  // 2: subscription.v1.Subscription
+	(*GetChannelSubscribersRequest)(nil),  // 3: subscription.v1.GetChannelSubscribersRequest
+	(*GetChannelSubscribersResponse)(nil), // 4: subscription.v1.GetChannelSubscribersResponse
 }
-var file_pkg_proto_subscription_v1_subscription_proto_depIdxs = []int32{
+var file_subscription_v1_subscription_proto_depIdxs = []int32{
 	2, // 0: subscription.v1.GetUserSubscriptionsResponse.subscriptions:type_name -> subscription.v1.Subscription
 	0, // 1: subscription.v1.SubscriptionService.GetUserSubscriptions:input_type -> subscription.v1.GetUserSubscriptionsRequest
-	1, // 2: subscription.v1.SubscriptionService.GetUserSubscriptions:output_type -> subscription.v1.GetUserSubscriptionsResponse
-	2, // [2:3] is the sub-list for method output_type
-	1, // [1:2] is the sub-list for method input_type
+	3, // 2: subscription.v1.SubscriptionService.GetChannelSubscribers:input_type -> subscription.v1.GetChannelSubscribersRequest
+	1, // 3: subscription.v1.SubscriptionService.GetUserSubscriptions:output_type -> subscription.v1.GetUserSubscriptionsResponse
+	4, // 4: subscription.v1.SubscriptionService.GetChannelSubscribers:output_type -> subscription.v1.GetChannelSubscribersResponse
+	3, // [3:5] is the sub-list for method output_type
+	1, // [1:3] is the sub-list for method input_type
 	1, // [1:1] is the sub-list for extension type_name
 	1, // [1:1] is the sub-list for extension extendee
 	0, // [0:1] is the sub-list for field type_name
 }
 
-func init() { file_pkg_proto_subscription_v1_subscription_proto_init() }
-func file_pkg_proto_subscription_v1_subscription_proto_init() {
-	if File_pkg_proto_subscription_v1_subscription_proto != nil {
+func init() { file_subscription_v1_subscription_proto_init() }
+func file_subscription_v1_subscription_proto_init() {
+	if File_subscription_v1_subscription_proto != nil {
 		return
 	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
-			RawDescriptor: unsafe.Slice(unsafe.StringData(file_pkg_proto_subscription_v1_subscription_proto_rawDesc), len(file_pkg_proto_subscription_v1_subscription_proto_rawDesc)),
+			RawDescriptor: unsafe.Slice(unsafe.StringData(file_subscription_v1_subscription_proto_rawDesc), len(file_subscription_v1_subscription_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   3,
+			NumMessages:   5,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
-		GoTypes:           file_pkg_proto_subscription_v1_subscription_proto_goTypes,
-		DependencyIndexes: file_pkg_proto_subscription_v1_subscription_proto_depIdxs,
-		MessageInfos:      file_pkg_proto_subscription_v1_subscription_proto_msgTypes,
+		GoTypes:           file_subscription_v1_subscription_proto_goTypes,
+		DependencyIndexes: file_subscription_v1_subscription_proto_depIdxs,
+		MessageInfos:      file_subscription_v1_subscription_proto_msgTypes,
 	}.Build()
-	File_pkg_proto_subscription_v1_subscription_proto = out.File
-	file_pkg_proto_subscription_v1_subscription_proto_goTypes = nil
-	file_pkg_proto_subscription_v1_subscription_proto_depIdxs = nil
+	File_subscription_v1_subscription_proto = out.File
+	file_subscription_v1_subscription_proto_goTypes = nil
+	file_subscription_v1_subscription_proto_depIdxs = nil
 }

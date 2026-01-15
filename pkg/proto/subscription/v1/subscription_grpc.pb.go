@@ -2,7 +2,7 @@
 // versions:
 // - protoc-gen-go-grpc v1.6.0
 // - protoc             v5.29.5
-// source: pkg/proto/subscription/v1/subscription.proto
+// source: subscription/v1/subscription.proto
 
 package subscriptionv1
 
@@ -19,7 +19,8 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	SubscriptionService_GetUserSubscriptions_FullMethodName = "/subscription.v1.SubscriptionService/GetUserSubscriptions"
+	SubscriptionService_GetUserSubscriptions_FullMethodName  = "/subscription.v1.SubscriptionService/GetUserSubscriptions"
+	SubscriptionService_GetChannelSubscribers_FullMethodName = "/subscription.v1.SubscriptionService/GetChannelSubscribers"
 )
 
 // SubscriptionServiceClient is the client API for SubscriptionService service.
@@ -30,6 +31,8 @@ const (
 type SubscriptionServiceClient interface {
 	// GetUserSubscriptions returns all active subscriptions for a user
 	GetUserSubscriptions(ctx context.Context, in *GetUserSubscriptionsRequest, opts ...grpc.CallOption) (*GetUserSubscriptionsResponse, error)
+	// GetChannelSubscribers returns all users subscribed to a channel
+	GetChannelSubscribers(ctx context.Context, in *GetChannelSubscribersRequest, opts ...grpc.CallOption) (*GetChannelSubscribersResponse, error)
 }
 
 type subscriptionServiceClient struct {
@@ -50,6 +53,16 @@ func (c *subscriptionServiceClient) GetUserSubscriptions(ctx context.Context, in
 	return out, nil
 }
 
+func (c *subscriptionServiceClient) GetChannelSubscribers(ctx context.Context, in *GetChannelSubscribersRequest, opts ...grpc.CallOption) (*GetChannelSubscribersResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetChannelSubscribersResponse)
+	err := c.cc.Invoke(ctx, SubscriptionService_GetChannelSubscribers_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // SubscriptionServiceServer is the server API for SubscriptionService service.
 // All implementations must embed UnimplementedSubscriptionServiceServer
 // for forward compatibility.
@@ -58,6 +71,8 @@ func (c *subscriptionServiceClient) GetUserSubscriptions(ctx context.Context, in
 type SubscriptionServiceServer interface {
 	// GetUserSubscriptions returns all active subscriptions for a user
 	GetUserSubscriptions(context.Context, *GetUserSubscriptionsRequest) (*GetUserSubscriptionsResponse, error)
+	// GetChannelSubscribers returns all users subscribed to a channel
+	GetChannelSubscribers(context.Context, *GetChannelSubscribersRequest) (*GetChannelSubscribersResponse, error)
 	mustEmbedUnimplementedSubscriptionServiceServer()
 }
 
@@ -70,6 +85,9 @@ type UnimplementedSubscriptionServiceServer struct{}
 
 func (UnimplementedSubscriptionServiceServer) GetUserSubscriptions(context.Context, *GetUserSubscriptionsRequest) (*GetUserSubscriptionsResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method GetUserSubscriptions not implemented")
+}
+func (UnimplementedSubscriptionServiceServer) GetChannelSubscribers(context.Context, *GetChannelSubscribersRequest) (*GetChannelSubscribersResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetChannelSubscribers not implemented")
 }
 func (UnimplementedSubscriptionServiceServer) mustEmbedUnimplementedSubscriptionServiceServer() {}
 func (UnimplementedSubscriptionServiceServer) testEmbeddedByValue()                             {}
@@ -110,6 +128,24 @@ func _SubscriptionService_GetUserSubscriptions_Handler(srv interface{}, ctx cont
 	return interceptor(ctx, in, info, handler)
 }
 
+func _SubscriptionService_GetChannelSubscribers_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetChannelSubscribersRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(SubscriptionServiceServer).GetChannelSubscribers(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: SubscriptionService_GetChannelSubscribers_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(SubscriptionServiceServer).GetChannelSubscribers(ctx, req.(*GetChannelSubscribersRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // SubscriptionService_ServiceDesc is the grpc.ServiceDesc for SubscriptionService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -121,7 +157,11 @@ var SubscriptionService_ServiceDesc = grpc.ServiceDesc{
 			MethodName: "GetUserSubscriptions",
 			Handler:    _SubscriptionService_GetUserSubscriptions_Handler,
 		},
+		{
+			MethodName: "GetChannelSubscribers",
+			Handler:    _SubscriptionService_GetChannelSubscribers_Handler,
+		},
 	},
 	Streams:  []grpc.StreamDesc{},
-	Metadata: "pkg/proto/subscription/v1/subscription.proto",
+	Metadata: "subscription/v1/subscription.proto",
 }

@@ -8,6 +8,8 @@ option go_package = "github.com/Conte777/NewsFlow/pkg/proto/subscription/v1;subs
 service SubscriptionService {
   // GetUserSubscriptions returns all active subscriptions for a user
   rpc GetUserSubscriptions(GetUserSubscriptionsRequest) returns (GetUserSubscriptionsResponse);
+  // GetChannelSubscribers returns all users subscribed to a channel
+  rpc GetChannelSubscribers(GetChannelSubscribersRequest) returns (GetChannelSubscribersResponse);
 }
 
 // GetUserSubscriptionsRequest is the request for GetUserSubscriptions
@@ -26,4 +28,14 @@ message Subscription {
   string channel_id = 2;
   string channel_name = 3;
   bool is_active = 4;
+}
+
+// GetChannelSubscribersRequest is the request for GetChannelSubscribers
+message GetChannelSubscribersRequest {
+  string channel_id = 1;
+}
+
+// GetChannelSubscribersResponse is the response for GetChannelSubscribers
+message GetChannelSubscribersResponse {
+  repeated int64 user_ids = 1;
 }
