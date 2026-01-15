@@ -28,11 +28,20 @@ func (r *Router) RegisterRoutes(bot *tgbot.Bot) {
 	// Register command handlers
 	bot.RegisterHandler(tgbot.HandlerTypeMessageText, "/start", tgbot.MatchTypeExact, r.handlers.HandleStart)
 	bot.RegisterHandler(tgbot.HandlerTypeMessageText, "/help", tgbot.MatchTypeExact, r.handlers.HandleHelp)
-	bot.RegisterHandler(tgbot.HandlerTypeMessageText, "/subscribe", tgbot.MatchTypePrefix, r.handlers.HandleSubscribe)
-	bot.RegisterHandler(tgbot.HandlerTypeMessageText, "/unsubscribe", tgbot.MatchTypePrefix, r.handlers.HandleUnsubscribe)
 	bot.RegisterHandler(tgbot.HandlerTypeMessageText, "/list", tgbot.MatchTypeExact, r.handlers.HandleList)
 
+	// Register handler for forwarded messages from channels
+	bot.RegisterHandlerMatchFunc(r.isForwardedFromChannel, r.handlers.HandleForwardedMessage)
+
 	r.logger.Info().Msg("All Telegram command handlers registered successfully")
+}
+
+// isForwardedFromChannel checks if message is forwarded from a public channel
+func (r *Router) isForwardedFromChannel(update *models.Update) bool {
+	if update.Message == nil || update.Message.ForwardOrigin == nil {
+		return false
+	}
+	return update.Message.ForwardOrigin.Type == models.MessageOriginTypeChannel
 }
 
 // DefaultHandler handles messages without commands
@@ -43,6 +52,6 @@ func DefaultHandler(ctx context.Context, bot *tgbot.Bot, update *models.Update) 
 
 	_, _ = bot.SendMessage(ctx, &tgbot.SendMessageParams{
 		ChatID: update.Message.Chat.ID,
-		Text:   "🤖 Используйте команды для взаимодействия с ботом. Напишите /help для списка доступных команд.",
+		Text:   "🤖 Перешлите мне сообщение из канала для подписки/отписки. Напишите /help для справки.",
 	})
 }

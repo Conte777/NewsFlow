@@ -63,3 +63,16 @@ type SubscriptionItem struct {
 	ChannelName string    `json:"channelName"`
 	CreatedAt   time.Time `json:"createdAt"`
 }
+
+// ToggleSubscriptionRequest represents a request to toggle subscription
+type ToggleSubscriptionRequest struct {
+	UserID      int64  `json:"userId" validate:"required"`
+	ChannelID   string `json:"channelId" validate:"required"`
+	ChannelName string `json:"channelName"`
+}
+
+// ToggleSubscriptionResponse represents response for toggle subscription
+type ToggleSubscriptionResponse struct {
+	Message string `json:"message"`
+	Action  string `json:"action"` // "subscribed" or "unsubscribed"
+}

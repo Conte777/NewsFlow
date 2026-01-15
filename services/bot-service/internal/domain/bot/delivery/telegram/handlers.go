@@ -150,76 +150,65 @@ func (h *Handlers) HandleHelp(ctx context.Context, bot *tgbot.Bot, update *model
 	h.logCommand(int64(userID), "/help", "success")
 }
 
-// HandleSubscribe handles /subscribe command
-func (h *Handlers) HandleSubscribe(ctx context.Context, bot *tgbot.Bot, update *models.Update) {
+// HandleForwardedMessage handles forwarded messages from public channels (toggle subscription)
+func (h *Handlers) HandleForwardedMessage(ctx context.Context, bot *tgbot.Bot, update *models.Update) {
 	userID := update.Message.From.ID
 	chatID := update.Message.Chat.ID
-	text := update.Message.Text
 
-	h.logCommand(int64(userID), "/subscribe", "processing")
-
-	channels, err := h.parseChannels(text, "/subscribe")
+	channelID, channelName, err := h.extractChannelFromForward(update.Message)
 	if err != nil {
-		h.logError(int64(userID), "/subscribe", err)
-		h.sendResponse(ctx, chatID, fmt.Sprintf("❌ Ошибка парсинга: %s", err.Error()))
+		h.logger.Warn().Err(err).Int64("user_id", int64(userID)).Msg("Failed to extract channel from forwarded message")
+		h.sendResponse(ctx, chatID, "❌ Не удалось определить канал из пересланного сообщения")
 		return
 	}
 
-	if len(channels) == 0 {
-		h.sendResponse(ctx, chatID, "❌ Укажите каналы для подписки. Пример: /subscribe @channel1 @channel2")
-		return
+	h.logCommand(int64(userID), "forward", fmt.Sprintf("channel: %s", channelID))
+
+	req := &dto.ToggleSubscriptionRequest{
+		UserID:      int64(userID),
+		ChannelID:   channelID,
+		ChannelName: channelName,
 	}
 
-	req := &dto.SubscribeRequest{
-		UserID:   int64(userID),
-		Channels: channels,
-	}
-
-	resp, err := h.uc.HandleSubscribe(ctx, req)
+	resp, err := h.uc.HandleToggleSubscription(ctx, req)
 	if err != nil {
-		h.logError(int64(userID), "/subscribe", err)
-		h.sendResponse(ctx, chatID, fmt.Sprintf("❌ Ошибка подписки: %s", err.Error()))
+		h.logError(int64(userID), "forward", err)
+		h.sendResponse(ctx, chatID, "❌ Произошла ошибка при обработке подписки")
 		return
 	}
 
 	h.sendResponse(ctx, chatID, resp.Message)
-	h.logCommand(int64(userID), "/subscribe", fmt.Sprintf("subscribed to %v", channels))
+	h.logCommand(int64(userID), "forward", resp.Action)
 }
 
-// HandleUnsubscribe handles /unsubscribe command
-func (h *Handlers) HandleUnsubscribe(ctx context.Context, bot *tgbot.Bot, update *models.Update) {
-	userID := update.Message.From.ID
-	chatID := update.Message.Chat.ID
-	text := update.Message.Text
-
-	h.logCommand(int64(userID), "/unsubscribe", "processing")
-
-	channels, err := h.parseChannels(text, "/unsubscribe")
-	if err != nil {
-		h.logError(int64(userID), "/unsubscribe", err)
-		h.sendResponse(ctx, chatID, fmt.Sprintf("❌ Ошибка парсинга: %s", err.Error()))
-		return
+// extractChannelFromForward extracts channel ID and name from forwarded message
+func (h *Handlers) extractChannelFromForward(msg *models.Message) (channelID, channelName string, err error) {
+	if msg.ForwardOrigin == nil {
+		return "", "", fmt.Errorf("message is not forwarded")
 	}
 
-	if len(channels) == 0 {
-		h.sendResponse(ctx, chatID, "❌ Укажите каналы для отписки. Пример: /unsubscribe @channel1 @channel2")
-		return
+	if msg.ForwardOrigin.Type != models.MessageOriginTypeChannel {
+		return "", "", fmt.Errorf("message is not forwarded from channel")
 	}
 
-	req := &dto.UnsubscribeRequest{
-		UserID:   int64(userID),
-		Channels: channels,
+	channel := msg.ForwardOrigin.MessageOriginChannel
+	if channel == nil {
+		return "", "", fmt.Errorf("channel data is nil")
 	}
 
-	resp, err := h.uc.HandleUnsubscribe(ctx, req)
-	if err != nil {
-		h.logError(int64(userID), "/unsubscribe", err)
-		h.sendResponse(ctx, chatID, fmt.Sprintf("❌ Ошибка отписки: %s", err.Error()))
-		return
+	// Prefer @username, fallback to numeric ID for private channels
+	if channel.Chat.Username != "" {
+		channelID = "@" + channel.Chat.Username
+		channelName = channel.Chat.Username
+	} else {
+		channelID = fmt.Sprintf("%d", channel.Chat.ID)
+		channelName = channel.Chat.Title
+		if channelName == "" {
+			channelName = channelID
+		}
 	}
 
-	h.sendResponse(ctx, chatID, resp.Message)
-	h.logCommand(int64(userID), "/unsubscribe", fmt.Sprintf("unsubscribed from %v", channels))
+	return channelID, channelName, nil
 }
 
 // HandleList handles /list command
@@ -778,54 +767,6 @@ func (h *Handlers) logMediaSend(userID int64, mediaCount int, success bool, err 
 	}
 
 	logEvent.Msg("Media send attempt completed")
-}
-
-// parseChannels parses and validates channels from command arguments
-func (h *Handlers) parseChannels(text, command string) ([]string, error) {
-	args := strings.TrimSpace(strings.TrimPrefix(text, command))
-	if args == "" {
-		return nil, nil
-	}
-
-	rawChannels := strings.Fields(args)
-	validChannels := make([]string, 0, len(rawChannels))
-
-	for _, channel := range rawChannels {
-		if !strings.HasPrefix(channel, "@") {
-			return nil, fmt.Errorf("неверный формат канала '%s'. Канал должен начинаться с @", channel)
-		}
-
-		channelName := strings.TrimPrefix(channel, "@")
-		if len(channelName) == 0 {
-			return nil, fmt.Errorf("неверный формат канала '%s'. Укажите название канала после @", channel)
-		}
-
-		if !isValidChannelName(channelName) {
-			return nil, fmt.Errorf("неверные символы в названии канала '%s'. Допустимы только буквы, цифры и подчеркивания", channel)
-		}
-
-		validChannels = append(validChannels, channel)
-	}
-
-	return validChannels, nil
-}
-
-// isValidChannelName checks channel name validity
-func isValidChannelName(name string) bool {
-	for _, char := range name {
-		if !isValidChannelChar(char) {
-			return false
-		}
-	}
-	return true
-}
-
-// isValidChannelChar checks channel character validity
-func isValidChannelChar(char rune) bool {
-	return (char >= 'a' && char <= 'z') ||
-		(char >= 'A' && char <= 'Z') ||
-		(char >= '0' && char <= '9') ||
-		char == '_'
 }
 
 // logCommand logs successful commands

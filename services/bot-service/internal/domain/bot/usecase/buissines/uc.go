@@ -4,7 +4,6 @@ package buissines
 import (
 	"context"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/rs/zerolog"
@@ -51,9 +50,10 @@ func (uc *UseCase) HandleStart(ctx context.Context, req *dto.StartCommandRequest
 
 Я помогу вам получать новости из ваших любимых Telegram-каналов.
 
+<b>Как подписаться/отписаться:</b>
+Перешлите мне сообщение из публичного канала — я автоматически подпишу вас или отпишу, если вы уже подписаны.
+
 <b>Доступные команды:</b>
-/subscribe @channel1 @channel2 - подписаться на каналы
-/unsubscribe @channel1 - отписаться от канала
 /list - список ваших подписок
 /help - показать справку`
 
@@ -62,136 +62,65 @@ func (uc *UseCase) HandleStart(ctx context.Context, req *dto.StartCommandRequest
 
 // HandleHelp handles /help command
 func (uc *UseCase) HandleHelp(ctx context.Context) (*dto.CommandResponse, error) {
-	message := `📚 <b>Справка по командам:</b>
+	message := `📚 <b>Справка:</b>
 
+<b>Подписка на канал:</b>
+Перешлите мне сообщение из публичного канала — я подпишу вас на него.
+
+<b>Отписка от канала:</b>
+Перешлите мне сообщение из канала, на который вы уже подписаны — я отпишу вас от него.
+
+<b>Команды:</b>
 /start - начать работу с ботом
-/subscribe @channel1 @channel2 - подписаться на каналы
-/unsubscribe @channel1 - отписаться от канала
 /list - показать список ваших подписок
-/help - показать эту справку
-
-<b>Формат канала:</b> @channel_name (обязательно начинается с @)
-
-<b>Примеры:</b>
-• /subscribe @telegram @durov
-• /unsubscribe @telegram
-• /list`
+/help - показать эту справку`
 
 	return &dto.CommandResponse{Message: message}, nil
 }
 
-// HandleSubscribe handles subscription request
-func (uc *UseCase) HandleSubscribe(ctx context.Context, req *dto.SubscribeRequest) (*dto.CommandResponse, error) {
-	if len(req.Channels) == 0 {
-		return nil, boterrors.ErrNoChannelsSpecified
-	}
-
+// HandleToggleSubscription handles toggle subscription logic
+// If user is subscribed - unsubscribe, if not - subscribe
+func (uc *UseCase) HandleToggleSubscription(ctx context.Context, req *dto.ToggleSubscriptionRequest) (*dto.ToggleSubscriptionResponse, error) {
 	uc.logger.Info().
 		Int64("user_id", req.UserID).
-		Strs("channels", req.Channels).
-		Msg("Processing subscription request")
+		Str("channel_id", req.ChannelID).
+		Msg("Processing toggle subscription request")
 
-	var subscribed []string
-	var errors []string
-
-	for _, channel := range req.Channels {
-		channel = strings.TrimSpace(channel)
-		if channel == "" {
-			continue
-		}
-
-		// Validate channel format
-		if !strings.HasPrefix(channel, "@") {
-			errors = append(errors, fmt.Sprintf("%s - неверный формат (нужен @)", channel))
-			continue
-		}
-
-		// Create subscription entity
-		subscription := &entities.Subscription{
-			UserID:      req.UserID,
-			ChannelID:   channel,
-			ChannelName: strings.TrimPrefix(channel, "@"),
-			CreatedAt:   time.Now(),
-		}
-
-		// Send event to Kafka
-		if err := uc.producer.SendSubscriptionCreated(ctx, subscription); err != nil {
-			uc.logger.Error().Err(err).Str("channel", channel).Msg("Failed to send subscription event")
-			errors = append(errors, fmt.Sprintf("%s - ошибка отправки", channel))
-			continue
-		}
-
-		subscribed = append(subscribed, channel)
+	// Check if already subscribed via gRPC
+	isSubscribed, err := uc.repository.CheckSubscription(ctx, req.UserID, req.ChannelID)
+	if err != nil {
+		uc.logger.Error().Err(err).Msg("Failed to check subscription status")
+		return nil, fmt.Errorf("failed to check subscription: %w", err)
 	}
 
-	var message string
-	if len(subscribed) > 0 {
-		message = fmt.Sprintf("✅ Подписка оформлена на: %s", strings.Join(subscribed, ", "))
-	}
-	if len(errors) > 0 {
-		if message != "" {
-			message += "\n\n"
+	if isSubscribed {
+		// Unsubscribe
+		if err := uc.producer.SendSubscriptionDeleted(ctx, req.UserID, req.ChannelID); err != nil {
+			uc.logger.Error().Err(err).Msg("Failed to send unsubscription event")
+			return nil, fmt.Errorf("failed to unsubscribe: %w", err)
 		}
-		message += fmt.Sprintf("❌ Ошибки:\n%s", strings.Join(errors, "\n"))
-	}
-	if message == "" {
-		message = "❌ Не указаны каналы для подписки"
-	}
-
-	return &dto.CommandResponse{Message: message}, nil
-}
-
-// HandleUnsubscribe handles unsubscription request
-func (uc *UseCase) HandleUnsubscribe(ctx context.Context, req *dto.UnsubscribeRequest) (*dto.CommandResponse, error) {
-	if len(req.Channels) == 0 {
-		return nil, boterrors.ErrNoChannelsSpecified
+		return &dto.ToggleSubscriptionResponse{
+			Message: fmt.Sprintf("✅ Вы отписались от канала %s", req.ChannelID),
+			Action:  "unsubscribed",
+		}, nil
 	}
 
-	uc.logger.Info().
-		Int64("user_id", req.UserID).
-		Strs("channels", req.Channels).
-		Msg("Processing unsubscription request")
-
-	var unsubscribed []string
-	var errors []string
-
-	for _, channel := range req.Channels {
-		channel = strings.TrimSpace(channel)
-		if channel == "" {
-			continue
-		}
-
-		// Validate channel format
-		if !strings.HasPrefix(channel, "@") {
-			errors = append(errors, fmt.Sprintf("%s - неверный формат", channel))
-			continue
-		}
-
-		// Send event to Kafka
-		if err := uc.producer.SendSubscriptionDeleted(ctx, req.UserID, channel); err != nil {
-			uc.logger.Error().Err(err).Str("channel", channel).Msg("Failed to send unsubscription event")
-			errors = append(errors, fmt.Sprintf("%s - ошибка отправки", channel))
-			continue
-		}
-
-		unsubscribed = append(unsubscribed, channel)
+	// Subscribe
+	subscription := &entities.Subscription{
+		UserID:      req.UserID,
+		ChannelID:   req.ChannelID,
+		ChannelName: req.ChannelName,
+		CreatedAt:   time.Now(),
+	}
+	if err := uc.producer.SendSubscriptionCreated(ctx, subscription); err != nil {
+		uc.logger.Error().Err(err).Msg("Failed to send subscription event")
+		return nil, fmt.Errorf("failed to subscribe: %w", err)
 	}
 
-	var message string
-	if len(unsubscribed) > 0 {
-		message = fmt.Sprintf("✅ Отписка выполнена от: %s", strings.Join(unsubscribed, ", "))
-	}
-	if len(errors) > 0 {
-		if message != "" {
-			message += "\n\n"
-		}
-		message += fmt.Sprintf("❌ Ошибки:\n%s", strings.Join(errors, "\n"))
-	}
-	if message == "" {
-		message = "❌ Не указаны каналы для отписки"
-	}
-
-	return &dto.CommandResponse{Message: message}, nil
+	return &dto.ToggleSubscriptionResponse{
+		Message: fmt.Sprintf("✅ Вы подписались на канал %s", req.ChannelID),
+		Action:  "subscribed",
+	}, nil
 }
 
 // HandleListSubscriptions handles listing user subscriptions
