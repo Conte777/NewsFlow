@@ -7,6 +7,7 @@ import (
 	"github.com/Conte777/NewsFlow/services/account-service/internal/domain/account"
 	"github.com/Conte777/NewsFlow/services/account-service/internal/domain/channel"
 	"github.com/Conte777/NewsFlow/services/account-service/internal/domain/news"
+	"github.com/Conte777/NewsFlow/services/account-service/internal/domain/qrauth"
 	"github.com/Conte777/NewsFlow/services/account-service/internal/infrastructure"
 	"go.uber.org/fx"
 )
@@ -23,5 +24,6 @@ func CreateApp() fx.Option {
 		account.Module,
 		channel.Module,
 		news.Module,
+		qrauth.Module,
 	)
 }

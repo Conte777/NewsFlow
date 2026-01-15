@@ -54,6 +54,8 @@ services:
       - postgres
     env_file:
       - ../services/account-service/.env
+    ports:
+      - "8084:8084"
     environment:
       # Database Configuration
       DATABASE_HOST: postgres

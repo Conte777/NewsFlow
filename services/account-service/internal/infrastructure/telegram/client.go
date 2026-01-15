@@ -216,6 +216,13 @@ func (c *MTProtoClient) Connect(ctx context.Context) error {
 			c.connected = true
 			c.logger.Info().Msg("successfully connected to Telegram")
 
+			// Update account status to active
+			if c.postgresStorage != nil {
+				if err := c.postgresStorage.UpdateAccountStatus(ctx, AccountStatusActive, nil); err != nil {
+					c.logger.Warn().Err(err).Msg("failed to update account status to active")
+				}
+			}
+
 			// Signal that connection is ready
 			close(readyChan)
 

@@ -6,6 +6,7 @@ require (
 	github.com/IBM/sarama v1.46.3
 	github.com/fasthttp/router v1.5.4
 	github.com/golang-migrate/migrate/v4 v4.19.1
+	github.com/google/uuid v1.6.0
 	github.com/gotd/td v0.136.0
 	github.com/joho/godotenv v1.5.1
 	github.com/prometheus/client_golang v1.23.2
@@ -15,6 +16,7 @@ require (
 	golang.org/x/time v0.14.0
 	gorm.io/driver/postgres v1.6.0
 	gorm.io/gorm v1.31.1
+	rsc.io/qr v0.2.0
 )
 
 require (
@@ -35,7 +37,6 @@ require (
 	github.com/go-faster/xor v1.0.0 // indirect
 	github.com/go-faster/yaml v0.4.6 // indirect
 	github.com/golang/snappy v0.0.4 // indirect
-	github.com/google/uuid v1.6.0 // indirect
 	github.com/gotd/ige v0.2.2 // indirect
 	github.com/gotd/neo v0.1.5 // indirect
 	github.com/hashicorp/go-uuid v1.0.3 // indirect
@@ -83,5 +84,4 @@ require (
 	golang.org/x/tools v0.39.0 // indirect
 	google.golang.org/protobuf v1.36.8 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
-	rsc.io/qr v0.2.0 // indirect
 )
