@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/YarosTrubechkoi/telegram-news-feed/account-service/internal/domain"
+	"github.com/Conte777/NewsFlow/services/account-service/internal/domain"
 )
 
 // mockTelegramClient is a test mock that implements domain.TelegramClient
@@ -623,10 +623,9 @@ func TestInitializeAccounts_PartialFailure(t *testing.T) {
 		t.Errorf("Expected 1 error, got %d", len(report.Errors))
 	}
 
-	// Verify the specific error (phone number should be masked)
-	maskedPhone := maskPhoneNumber("+2222222222")
-	if _, exists := report.Errors[maskedPhone]; !exists {
-		t.Errorf("Expected error for %s (masked +2222222222)", maskedPhone)
+	// Verify the specific error
+	if _, exists := report.Errors["+2222222222"]; !exists {
+		t.Errorf("Expected error for +2222222222")
 	}
 
 	// Verify only successful accounts were added

@@ -1,4 +1,4 @@
-module github.com/yourusername/telegram-news-feed/news-service
+module github.com/Conte777/NewsFlow/services/news-service
 
 go 1.24.0
 

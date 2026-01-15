@@ -3,7 +3,7 @@ package main
 import (
 	"go.uber.org/fx"
 
-	"github.com/Conte777/newsflow/services/bot-service/internal/app"
+	"github.com/Conte777/NewsFlow/services/bot-service/internal/app"
 )
 
 func main() {

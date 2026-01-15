@@ -1,7 +1,7 @@
 package errors
 
 import (
-	pkgerrors "github.com/yourusername/telegram-news-feed/news-service/pkg/errors"
+	pkgerrors "github.com/Conte777/NewsFlow/services/news-service/pkg/errors"
 )
 
 var (

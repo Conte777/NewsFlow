@@ -5,8 +5,8 @@ import (
 	"encoding/json"
 
 	"github.com/rs/zerolog"
-	"github.com/yourusername/telegram-news-feed/news-service/internal/domain/news/dto"
-	"github.com/yourusername/telegram-news-feed/news-service/internal/domain/news/usecase/buissines"
+	"github.com/Conte777/NewsFlow/services/news-service/internal/domain/news/dto"
+	"github.com/Conte777/NewsFlow/services/news-service/internal/domain/news/usecase/buissines"
 )
 
 // Handlers handles Kafka messages for news domain

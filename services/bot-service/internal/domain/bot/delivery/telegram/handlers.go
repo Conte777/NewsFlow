@@ -15,8 +15,8 @@ import (
 	"github.com/go-telegram/bot/models"
 	"github.com/rs/zerolog"
 
-	"github.com/Conte777/newsflow/services/bot-service/internal/domain/bot/dto"
-	"github.com/Conte777/newsflow/services/bot-service/internal/domain/bot/usecase/buissines"
+	"github.com/Conte777/NewsFlow/services/bot-service/internal/domain/bot/dto"
+	"github.com/Conte777/NewsFlow/services/bot-service/internal/domain/bot/usecase/buissines"
 )
 
 // Constants for Telegram API

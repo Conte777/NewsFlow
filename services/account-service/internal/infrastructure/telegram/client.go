@@ -16,7 +16,7 @@ import (
 	"golang.org/x/time/rate"
 	"gorm.io/gorm"
 
-	"github.com/YarosTrubechkoi/telegram-news-feed/account-service/internal/domain"
+	"github.com/Conte777/NewsFlow/services/account-service/internal/domain"
 )
 
 // MTProtoClient implements domain.TelegramClient using gotd/td library
@@ -70,14 +70,6 @@ type MTProtoClientConfig struct {
 	Logger      zerolog.Logger
 }
 
-// maskPhoneNumber masks phone number for logging (keeps first 2 and last 2 digits)
-func maskPhoneNumber(phone string) string {
-	if len(phone) < 4 {
-		return "***"
-	}
-	return phone[:2] + strings.Repeat("*", len(phone)-4) + phone[len(phone)-2:]
-}
-
 // NewMTProtoClient creates a new MTProto client instance
 func NewMTProtoClient(cfg MTProtoClientConfig) (*MTProtoClient, error) {
 	if cfg.APIID == 0 {
@@ -99,14 +91,12 @@ func NewMTProtoClient(cfg MTProtoClientConfig) (*MTProtoClient, error) {
 		return nil, fmt.Errorf("failed to create session storage: %w", err)
 	}
 
-	maskedPhone := maskPhoneNumber(cfg.PhoneNumber)
-
 	client := &MTProtoClient{
 		apiID:               cfg.APIID,
 		apiHash:             cfg.APIHash,
 		phoneNumber:         cfg.PhoneNumber,
 		sessionStorage:      sessionStorage,
-		logger:              cfg.Logger.With().Str("component", "mtproto_client").Str("phone", maskedPhone).Logger(),
+		logger:              cfg.Logger.With().Str("component", "mtproto_client").Str("phone", cfg.PhoneNumber).Logger(),
 		connected:           false,
 		rateLimiter:         rate.NewLimiter(rate.Every(time.Second), 10), // 10 requests per second
 		channelInfoCache:    make(map[string]*cachedChannelInfo),
@@ -137,14 +127,12 @@ func NewMTProtoClientWithDB(cfg MTProtoClientConfig, db *gorm.DB) (*MTProtoClien
 		return nil, fmt.Errorf("failed to create postgres session storage: %w", err)
 	}
 
-	maskedPhone := maskPhoneNumber(cfg.PhoneNumber)
-
 	client := &MTProtoClient{
 		apiID:               cfg.APIID,
 		apiHash:             cfg.APIHash,
 		phoneNumber:         cfg.PhoneNumber,
 		postgresStorage:     postgresStorage,
-		logger:              cfg.Logger.With().Str("component", "mtproto_client").Str("phone", maskedPhone).Logger(),
+		logger:              cfg.Logger.With().Str("component", "mtproto_client").Str("phone", cfg.PhoneNumber).Logger(),
 		connected:           false,
 		rateLimiter:         rate.NewLimiter(rate.Every(time.Second), 10),
 		channelInfoCache:    make(map[string]*cachedChannelInfo),

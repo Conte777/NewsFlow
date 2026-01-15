@@ -9,10 +9,10 @@ import (
 
 	"github.com/rs/zerolog"
 
-	"github.com/Conte777/newsflow/services/bot-service/internal/domain/bot/deps"
-	"github.com/Conte777/newsflow/services/bot-service/internal/domain/bot/dto"
-	"github.com/Conte777/newsflow/services/bot-service/internal/domain/bot/entities"
-	boterrors "github.com/Conte777/newsflow/services/bot-service/internal/domain/bot/errors"
+	"github.com/Conte777/NewsFlow/services/bot-service/internal/domain/bot/deps"
+	"github.com/Conte777/NewsFlow/services/bot-service/internal/domain/bot/dto"
+	"github.com/Conte777/NewsFlow/services/bot-service/internal/domain/bot/entities"
+	boterrors "github.com/Conte777/NewsFlow/services/bot-service/internal/domain/bot/errors"
 )
 
 // UseCase contains business logic for bot operations

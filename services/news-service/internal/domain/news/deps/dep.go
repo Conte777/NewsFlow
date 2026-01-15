@@ -3,7 +3,7 @@ package deps
 import (
 	"context"
 
-	"github.com/yourusername/telegram-news-feed/news-service/internal/domain/news/entities"
+	"github.com/Conte777/NewsFlow/services/news-service/internal/domain/news/entities"
 )
 
 // NewsRepository defines the interface for news data access

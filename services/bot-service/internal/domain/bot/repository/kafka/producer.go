@@ -10,9 +10,9 @@ import (
 	"github.com/IBM/sarama"
 	"github.com/rs/zerolog"
 
-	"github.com/Conte777/newsflow/services/bot-service/config"
-	"github.com/Conte777/newsflow/services/bot-service/internal/domain/bot/deps"
-	"github.com/Conte777/newsflow/services/bot-service/internal/domain/bot/entities"
+	"github.com/Conte777/NewsFlow/services/bot-service/config"
+	"github.com/Conte777/NewsFlow/services/bot-service/internal/domain/bot/deps"
+	"github.com/Conte777/NewsFlow/services/bot-service/internal/domain/bot/entities"
 )
 
 // Producer implements deps.SubscriptionEventProducer

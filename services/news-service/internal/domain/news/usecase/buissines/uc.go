@@ -7,11 +7,11 @@ import (
 	"fmt"
 
 	"github.com/rs/zerolog"
-	"github.com/yourusername/telegram-news-feed/news-service/internal/domain/news/deps"
-	"github.com/yourusername/telegram-news-feed/news-service/internal/domain/news/dto"
-	"github.com/yourusername/telegram-news-feed/news-service/internal/domain/news/entities"
-	domainerrors "github.com/yourusername/telegram-news-feed/news-service/internal/domain/news/errors"
-	pkgerrors "github.com/yourusername/telegram-news-feed/news-service/pkg/errors"
+	"github.com/Conte777/NewsFlow/services/news-service/internal/domain/news/deps"
+	"github.com/Conte777/NewsFlow/services/news-service/internal/domain/news/dto"
+	"github.com/Conte777/NewsFlow/services/news-service/internal/domain/news/entities"
+	domainerrors "github.com/Conte777/NewsFlow/services/news-service/internal/domain/news/errors"
+	pkgerrors "github.com/Conte777/NewsFlow/services/news-service/pkg/errors"
 )
 
 // UseCase implements news business logic

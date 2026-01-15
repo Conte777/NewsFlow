@@ -1,8 +1,8 @@
 package news
 
 import (
-	"github.com/YarosTrubechkoi/telegram-news-feed/account-service/internal/domain/news/usecase/business"
-	"github.com/YarosTrubechkoi/telegram-news-feed/account-service/internal/domain/news/workers"
+	"github.com/Conte777/NewsFlow/services/account-service/internal/domain/news/usecase/business"
+	"github.com/Conte777/NewsFlow/services/account-service/internal/domain/news/workers"
 	"go.uber.org/fx"
 )
 

@@ -5,7 +5,7 @@ import (
 	"strings"
 
 	"github.com/rs/zerolog"
-	"github.com/yourusername/telegram-news-feed/news-service/config"
+	"github.com/Conte777/NewsFlow/services/news-service/config"
 )
 
 // NewLogger creates a new logger from config

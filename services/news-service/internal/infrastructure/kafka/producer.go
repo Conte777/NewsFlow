@@ -8,8 +8,8 @@ import (
 
 	"github.com/rs/zerolog"
 	"github.com/segmentio/kafka-go"
-	"github.com/yourusername/telegram-news-feed/news-service/config"
-	"github.com/yourusername/telegram-news-feed/news-service/internal/domain/news/deps"
+	"github.com/Conte777/NewsFlow/services/news-service/config"
+	"github.com/Conte777/NewsFlow/services/news-service/internal/domain/news/deps"
 )
 
 const (

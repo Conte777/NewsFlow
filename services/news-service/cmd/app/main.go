@@ -4,9 +4,9 @@ import (
 	"context"
 
 	"github.com/rs/zerolog"
-	"github.com/yourusername/telegram-news-feed/news-service/config"
-	"github.com/yourusername/telegram-news-feed/news-service/internal/app"
-	"github.com/yourusername/telegram-news-feed/news-service/internal/domain/news/delivery/kafka"
+	"github.com/Conte777/NewsFlow/services/news-service/config"
+	"github.com/Conte777/NewsFlow/services/news-service/internal/app"
+	"github.com/Conte777/NewsFlow/services/news-service/internal/domain/news/delivery/kafka"
 	"go.uber.org/fx"
 	"gorm.io/gorm"
 )

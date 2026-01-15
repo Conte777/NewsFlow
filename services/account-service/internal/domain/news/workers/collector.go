@@ -5,8 +5,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/YarosTrubechkoi/telegram-news-feed/account-service/config"
-	"github.com/YarosTrubechkoi/telegram-news-feed/account-service/internal/domain/news/usecase/business"
+	"github.com/Conte777/NewsFlow/services/account-service/config"
+	"github.com/Conte777/NewsFlow/services/account-service/internal/domain/news/usecase/business"
 	"github.com/rs/zerolog"
 )
 

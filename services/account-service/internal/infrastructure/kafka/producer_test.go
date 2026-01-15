@@ -11,7 +11,7 @@ import (
 	"github.com/IBM/sarama/mocks"
 	"github.com/rs/zerolog"
 
-	"github.com/YarosTrubechkoi/telegram-news-feed/account-service/internal/domain"
+	"github.com/Conte777/NewsFlow/services/account-service/internal/domain"
 )
 
 // TestNewKafkaProducer tests producer creation with valid configuration

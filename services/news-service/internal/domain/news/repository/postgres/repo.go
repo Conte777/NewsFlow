@@ -4,9 +4,9 @@ import (
 	"context"
 	"errors"
 
-	"github.com/yourusername/telegram-news-feed/news-service/internal/domain/news/deps"
-	"github.com/yourusername/telegram-news-feed/news-service/internal/domain/news/entities"
-	domainerrors "github.com/yourusername/telegram-news-feed/news-service/internal/domain/news/errors"
+	"github.com/Conte777/NewsFlow/services/news-service/internal/domain/news/deps"
+	"github.com/Conte777/NewsFlow/services/news-service/internal/domain/news/entities"
+	domainerrors "github.com/Conte777/NewsFlow/services/news-service/internal/domain/news/errors"
 	"gorm.io/gorm"
 )
 

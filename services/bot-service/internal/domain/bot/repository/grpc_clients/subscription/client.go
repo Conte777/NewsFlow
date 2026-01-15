@@ -9,7 +9,7 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 
 	pb "github.com/Conte777/NewsFlow/pkg/proto/subscription/v1"
-	"github.com/Conte777/newsflow/services/bot-service/internal/domain/bot/entities"
+	"github.com/Conte777/NewsFlow/services/bot-service/internal/domain/bot/entities"
 )
 
 // Client implements deps.SubscriptionRepository using gRPC

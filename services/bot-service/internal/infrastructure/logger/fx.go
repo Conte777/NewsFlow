@@ -5,7 +5,7 @@ import (
 	"github.com/rs/zerolog"
 	"go.uber.org/fx"
 
-	"github.com/Conte777/newsflow/services/bot-service/config"
+	"github.com/Conte777/NewsFlow/services/bot-service/config"
 )
 
 // Module provides logger for fx dependency injection

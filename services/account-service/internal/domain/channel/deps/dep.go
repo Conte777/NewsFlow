@@ -3,7 +3,7 @@ package deps
 import (
 	"context"
 
-	"github.com/YarosTrubechkoi/telegram-news-feed/account-service/internal/domain/channel/entities"
+	"github.com/Conte777/NewsFlow/services/account-service/internal/domain/channel/entities"
 )
 
 // ChannelRepository defines interface for channel subscription storage

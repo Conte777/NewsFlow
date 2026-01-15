@@ -5,9 +5,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/YarosTrubechkoi/telegram-news-feed/account-service/internal/domain/channel/deps"
-	"github.com/YarosTrubechkoi/telegram-news-feed/account-service/internal/domain/channel/entities"
-	channelerrors "github.com/YarosTrubechkoi/telegram-news-feed/account-service/internal/domain/channel/errors"
+	"github.com/Conte777/NewsFlow/services/account-service/internal/domain/channel/deps"
+	"github.com/Conte777/NewsFlow/services/account-service/internal/domain/channel/entities"
+	channelerrors "github.com/Conte777/NewsFlow/services/account-service/internal/domain/channel/errors"
 )
 
 // channelRepository implements deps.ChannelRepository using in-memory storage

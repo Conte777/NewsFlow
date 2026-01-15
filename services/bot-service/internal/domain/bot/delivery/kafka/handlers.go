@@ -7,9 +7,9 @@ import (
 
 	"github.com/rs/zerolog"
 
-	"github.com/Conte777/newsflow/services/bot-service/internal/domain/bot/dto"
-	"github.com/Conte777/newsflow/services/bot-service/internal/domain/bot/entities"
-	"github.com/Conte777/newsflow/services/bot-service/internal/domain/bot/usecase/buissines"
+	"github.com/Conte777/NewsFlow/services/bot-service/internal/domain/bot/dto"
+	"github.com/Conte777/NewsFlow/services/bot-service/internal/domain/bot/entities"
+	"github.com/Conte777/NewsFlow/services/bot-service/internal/domain/bot/usecase/buissines"
 )
 
 // Handlers contains Kafka message handlers

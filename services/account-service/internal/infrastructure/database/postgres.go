@@ -3,7 +3,7 @@ package database
 import (
 	"fmt"
 
-	"github.com/YarosTrubechkoi/telegram-news-feed/account-service/config"
+	"github.com/Conte777/NewsFlow/services/account-service/config"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"

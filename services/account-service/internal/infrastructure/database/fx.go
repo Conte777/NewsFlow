@@ -3,7 +3,7 @@ package database
 import (
 	"context"
 
-	"github.com/YarosTrubechkoi/telegram-news-feed/account-service/config"
+	"github.com/Conte777/NewsFlow/services/account-service/config"
 	"github.com/rs/zerolog"
 	"go.uber.org/fx"
 	"gorm.io/gorm"

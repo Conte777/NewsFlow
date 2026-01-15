@@ -1,12 +1,12 @@
 package infrastructure
 
 import (
-	"github.com/YarosTrubechkoi/telegram-news-feed/account-service/internal/infrastructure/database"
-	httpfx "github.com/YarosTrubechkoi/telegram-news-feed/account-service/internal/infrastructure/http"
-	"github.com/YarosTrubechkoi/telegram-news-feed/account-service/internal/infrastructure/kafka"
-	"github.com/YarosTrubechkoi/telegram-news-feed/account-service/internal/infrastructure/logger"
-	"github.com/YarosTrubechkoi/telegram-news-feed/account-service/internal/infrastructure/metrics"
-	"github.com/YarosTrubechkoi/telegram-news-feed/account-service/internal/infrastructure/telegram"
+	"github.com/Conte777/NewsFlow/services/account-service/internal/infrastructure/database"
+	httpfx "github.com/Conte777/NewsFlow/services/account-service/internal/infrastructure/http"
+	"github.com/Conte777/NewsFlow/services/account-service/internal/infrastructure/kafka"
+	"github.com/Conte777/NewsFlow/services/account-service/internal/infrastructure/logger"
+	"github.com/Conte777/NewsFlow/services/account-service/internal/infrastructure/metrics"
+	"github.com/Conte777/NewsFlow/services/account-service/internal/infrastructure/telegram"
 	"go.uber.org/fx"
 )
 

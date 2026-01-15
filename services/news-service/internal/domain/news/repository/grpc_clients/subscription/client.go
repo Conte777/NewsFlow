@@ -9,8 +9,8 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 
 	pb "github.com/Conte777/NewsFlow/pkg/proto/subscription/v1"
-	"github.com/yourusername/telegram-news-feed/news-service/config"
-	"github.com/yourusername/telegram-news-feed/news-service/internal/domain/news/deps"
+	"github.com/Conte777/NewsFlow/services/news-service/config"
+	"github.com/Conte777/NewsFlow/services/news-service/internal/domain/news/deps"
 )
 
 type Client struct {

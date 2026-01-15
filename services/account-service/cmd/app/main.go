@@ -6,7 +6,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/YarosTrubechkoi/telegram-news-feed/account-service/internal/app"
+	"github.com/Conte777/NewsFlow/services/account-service/internal/app"
 	"go.uber.org/fx"
 )
 

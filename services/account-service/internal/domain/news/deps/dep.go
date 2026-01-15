@@ -3,7 +3,7 @@ package deps
 import (
 	"context"
 
-	"github.com/YarosTrubechkoi/telegram-news-feed/account-service/internal/domain/news/entities"
+	"github.com/Conte777/NewsFlow/services/account-service/internal/domain/news/entities"
 )
 
 // KafkaProducer defines interface for sending messages to Kafka

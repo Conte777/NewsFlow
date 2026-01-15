@@ -9,7 +9,7 @@ import (
 
 	"github.com/rs/zerolog"
 
-	"github.com/YarosTrubechkoi/telegram-news-feed/account-service/internal/domain"
+	"github.com/Conte777/NewsFlow/services/account-service/internal/domain"
 )
 
 // ClientFactory is a function type for creating Telegram clients
@@ -110,10 +110,10 @@ func (m *accountManager) InitializeAccounts(ctx context.Context, cfg domain.Acco
 			select {
 			case <-ctx.Done():
 				cfg.Logger.Debug().
-					Str("phone", maskPhoneNumber(phone)).
+					Str("phone", phone).
 					Msg("Skipping account initialization due to context cancellation")
 				reportMu.Lock()
-				report.Errors[maskPhoneNumber(phone)] = ctx.Err()
+				report.Errors[phone] = ctx.Err()
 				report.FailedAccounts++
 				reportMu.Unlock()
 				return
@@ -126,14 +126,13 @@ func (m *accountManager) InitializeAccounts(ctx context.Context, cfg domain.Acco
 				defer func() { <-semaphore }()
 			case <-ctx.Done():
 				reportMu.Lock()
-				report.Errors[maskPhoneNumber(phone)] = ctx.Err()
+				report.Errors[phone] = ctx.Err()
 				report.FailedAccounts++
 				reportMu.Unlock()
 				return
 			}
 
-			maskedPhone := maskPhoneNumber(phone)
-			logger := cfg.Logger.With().Str("phone", maskedPhone).Logger()
+			logger := cfg.Logger.With().Str("phone", phone).Logger()
 
 			// Create MTProto client using factory
 			client, err := m.clientFactory(MTProtoClientConfig{
@@ -147,7 +146,7 @@ func (m *accountManager) InitializeAccounts(ctx context.Context, cfg domain.Acco
 			if err != nil {
 				logger.Warn().Err(err).Msg("Failed to create MTProto client")
 				reportMu.Lock()
-				report.Errors[maskedPhone] = fmt.Errorf("create client: %w", err)
+				report.Errors[phone] = fmt.Errorf("create client: %w", err)
 				report.FailedAccounts++
 				reportMu.Unlock()
 				return
@@ -157,7 +156,7 @@ func (m *accountManager) InitializeAccounts(ctx context.Context, cfg domain.Acco
 			if err := client.Connect(ctx); err != nil {
 				logger.Warn().Err(err).Msg("Failed to connect account")
 				reportMu.Lock()
-				report.Errors[maskedPhone] = fmt.Errorf("connect: %w", err)
+				report.Errors[phone] = fmt.Errorf("connect: %w", err)
 				report.FailedAccounts++
 				reportMu.Unlock()
 				return
@@ -177,7 +176,7 @@ func (m *accountManager) InitializeAccounts(ctx context.Context, cfg domain.Acco
 				}
 
 				reportMu.Lock()
-				report.Errors[maskedPhone] = fmt.Errorf("add account: %w", err)
+				report.Errors[phone] = fmt.Errorf("add account: %w", err)
 				report.FailedAccounts++
 				reportMu.Unlock()
 				return
@@ -300,7 +299,7 @@ func (m *accountManager) AddAccount(client domain.TelegramClient) error {
 
 	// Check if account already exists
 	if _, exists := m.accounts[accountID]; exists {
-		return fmt.Errorf("account already exists: %s", maskPhoneNumber(accountID))
+		return fmt.Errorf("account already exists: %s", accountID)
 	}
 
 	m.accounts[accountID] = client
@@ -319,7 +318,7 @@ func (m *accountManager) RemoveAccount(accountID string) error {
 	defer m.mu.Unlock()
 
 	if _, exists := m.accounts[accountID]; !exists {
-		return fmt.Errorf("account not found: %s", maskPhoneNumber(accountID))
+		return fmt.Errorf("account not found: %s", accountID)
 	}
 
 	delete(m.accounts, accountID)
@@ -475,8 +474,7 @@ func (m *accountManager) Shutdown(ctx context.Context) int {
 		default:
 		}
 
-		maskedID := maskPhoneNumber(acc.id)
-		logger := m.logger.With().Str("account", maskedID).Logger()
+		logger := m.logger.With().Str("account", acc.id).Logger()
 
 		logger.Debug().Msg("Disconnecting account")
 

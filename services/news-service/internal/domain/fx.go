@@ -3,7 +3,7 @@ package domain
 import (
 	"go.uber.org/fx"
 
-	"github.com/yourusername/telegram-news-feed/news-service/internal/domain/news"
+	"github.com/Conte777/NewsFlow/services/news-service/internal/domain/news"
 )
 
 // Module aggregates all domain modules

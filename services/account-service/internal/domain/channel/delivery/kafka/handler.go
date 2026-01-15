@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/YarosTrubechkoi/telegram-news-feed/account-service/internal/domain/channel/usecase/business"
+	"github.com/Conte777/NewsFlow/services/account-service/internal/domain/channel/usecase/business"
 	"github.com/rs/zerolog"
 )
 

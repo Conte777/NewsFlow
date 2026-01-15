@@ -1,8 +1,8 @@
 package account
 
 import (
-	"github.com/YarosTrubechkoi/telegram-news-feed/account-service/internal/domain/account/delivery/http"
-	"github.com/YarosTrubechkoi/telegram-news-feed/account-service/internal/infrastructure/http/server"
+	"github.com/Conte777/NewsFlow/services/account-service/internal/domain/account/delivery/http"
+	"github.com/Conte777/NewsFlow/services/account-service/internal/infrastructure/http/server"
 	"go.uber.org/fx"
 )
 

@@ -1,10 +1,10 @@
 package channel
 
 import (
-	"github.com/YarosTrubechkoi/telegram-news-feed/account-service/internal/domain/channel/delivery/kafka"
-	"github.com/YarosTrubechkoi/telegram-news-feed/account-service/internal/domain/channel/deps"
-	"github.com/YarosTrubechkoi/telegram-news-feed/account-service/internal/domain/channel/repository/memory"
-	"github.com/YarosTrubechkoi/telegram-news-feed/account-service/internal/domain/channel/usecase/business"
+	"github.com/Conte777/NewsFlow/services/account-service/internal/domain/channel/delivery/kafka"
+	"github.com/Conte777/NewsFlow/services/account-service/internal/domain/channel/deps"
+	"github.com/Conte777/NewsFlow/services/account-service/internal/domain/channel/repository/memory"
+	"github.com/Conte777/NewsFlow/services/account-service/internal/domain/channel/usecase/business"
 	"go.uber.org/fx"
 )
 

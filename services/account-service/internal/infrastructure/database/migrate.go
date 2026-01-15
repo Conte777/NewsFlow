@@ -3,7 +3,7 @@ package database
 import (
 	"fmt"
 
-	"github.com/YarosTrubechkoi/telegram-news-feed/account-service/config"
+	"github.com/Conte777/NewsFlow/services/account-service/config"
 	"github.com/golang-migrate/migrate/v4"
 	"github.com/golang-migrate/migrate/v4/database/postgres"
 	_ "github.com/golang-migrate/migrate/v4/source/file"

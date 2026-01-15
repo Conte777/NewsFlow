@@ -5,9 +5,9 @@ import (
 	"errors"
 	"time"
 
-	"github.com/YarosTrubechkoi/telegram-news-feed/account-service/internal/domain"
-	channeldeps "github.com/YarosTrubechkoi/telegram-news-feed/account-service/internal/domain/channel/deps"
-	"github.com/YarosTrubechkoi/telegram-news-feed/account-service/internal/infrastructure/metrics"
+	"github.com/Conte777/NewsFlow/services/account-service/internal/domain"
+	channeldeps "github.com/Conte777/NewsFlow/services/account-service/internal/domain/channel/deps"
+	"github.com/Conte777/NewsFlow/services/account-service/internal/infrastructure/metrics"
 	"github.com/rs/zerolog"
 )
 

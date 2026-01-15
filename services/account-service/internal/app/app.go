@@ -3,11 +3,11 @@ package app
 import (
 	"context"
 
-	"github.com/YarosTrubechkoi/telegram-news-feed/account-service/config"
-	"github.com/YarosTrubechkoi/telegram-news-feed/account-service/internal/domain/account"
-	"github.com/YarosTrubechkoi/telegram-news-feed/account-service/internal/domain/channel"
-	"github.com/YarosTrubechkoi/telegram-news-feed/account-service/internal/domain/news"
-	"github.com/YarosTrubechkoi/telegram-news-feed/account-service/internal/infrastructure"
+	"github.com/Conte777/NewsFlow/services/account-service/config"
+	"github.com/Conte777/NewsFlow/services/account-service/internal/domain/account"
+	"github.com/Conte777/NewsFlow/services/account-service/internal/domain/channel"
+	"github.com/Conte777/NewsFlow/services/account-service/internal/domain/news"
+	"github.com/Conte777/NewsFlow/services/account-service/internal/infrastructure"
 	"go.uber.org/fx"
 )
 

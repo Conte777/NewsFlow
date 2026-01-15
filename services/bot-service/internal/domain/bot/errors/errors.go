@@ -2,7 +2,7 @@
 package errors
 
 import (
-	pkgerrors "github.com/Conte777/newsflow/services/bot-service/pkg/errors"
+	pkgerrors "github.com/Conte777/NewsFlow/services/bot-service/pkg/errors"
 )
 
 // Domain errors for bot operations

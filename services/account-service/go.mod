@@ -1,4 +1,4 @@
-module github.com/YarosTrubechkoi/telegram-news-feed/account-service
+module github.com/Conte777/NewsFlow/services/account-service
 
 go 1.24.0
 

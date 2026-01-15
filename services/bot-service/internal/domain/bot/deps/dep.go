@@ -4,7 +4,7 @@ package deps
 import (
 	"context"
 
-	"github.com/Conte777/newsflow/services/bot-service/internal/domain/bot/entities"
+	"github.com/Conte777/NewsFlow/services/bot-service/internal/domain/bot/entities"
 )
 
 // TelegramSender defines interface for sending messages via Telegram

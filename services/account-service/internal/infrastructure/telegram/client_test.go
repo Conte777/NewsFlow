@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/YarosTrubechkoi/telegram-news-feed/account-service/internal/domain"
+	"github.com/Conte777/NewsFlow/services/account-service/internal/domain"
 	"github.com/gotd/td/tg"
 	"github.com/rs/zerolog"
 )

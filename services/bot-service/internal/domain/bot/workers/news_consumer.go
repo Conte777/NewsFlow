@@ -7,8 +7,8 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/segmentio/kafka-go"
 
-	"github.com/Conte777/newsflow/services/bot-service/config"
-	kafkaHandlers "github.com/Conte777/newsflow/services/bot-service/internal/domain/bot/delivery/kafka"
+	"github.com/Conte777/NewsFlow/services/bot-service/config"
+	kafkaHandlers "github.com/Conte777/NewsFlow/services/bot-service/internal/domain/bot/delivery/kafka"
 )
 
 // NewsConsumer consumes news delivery events from Kafka

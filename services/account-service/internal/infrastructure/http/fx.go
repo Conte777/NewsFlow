@@ -3,8 +3,8 @@ package http
 import (
 	"context"
 
-	"github.com/YarosTrubechkoi/telegram-news-feed/account-service/config"
-	"github.com/YarosTrubechkoi/telegram-news-feed/account-service/internal/infrastructure/http/server"
+	"github.com/Conte777/NewsFlow/services/account-service/config"
+	"github.com/Conte777/NewsFlow/services/account-service/internal/infrastructure/http/server"
 	"github.com/rs/zerolog"
 	"go.uber.org/fx"
 )
