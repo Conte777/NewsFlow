@@ -51,8 +51,20 @@ type KafkaConfig struct {
 	Brokers                   []string
 	GroupID                   string
 	TopicNewsReceived         string // Topic for publishing collected news
-	TopicSubscriptionsCreated string // Topic for subscription created events
-	TopicSubscriptionsDeleted string // Topic for subscription deleted events
+	TopicSubscriptionsCreated string // Topic for subscription created events (legacy)
+	TopicSubscriptionsDeleted string // Topic for subscription deleted events (legacy)
+
+	// Saga: Subscription flow (consumed)
+	TopicSubscriptionPending string // subscription.pending -> account-service
+	// Saga: Subscription flow (produced)
+	TopicSubscriptionActivated string // account-service -> subscription-service
+	TopicSubscriptionFailed    string // account-service -> subscription-service
+
+	// Saga: Unsubscription flow (consumed)
+	TopicUnsubscriptionPending string // unsubscription.pending -> account-service
+	// Saga: Unsubscription flow (produced)
+	TopicUnsubscriptionCompleted string // account-service -> subscription-service
+	TopicUnsubscriptionFailed    string // account-service -> subscription-service
 }
 
 // LoggingConfig holds logging configuration
@@ -134,6 +146,14 @@ func Load() (*Config, error) {
 			TopicNewsReceived:         getEnv("KAFKA_TOPIC_NEWS_RECEIVED", "news.received"),
 			TopicSubscriptionsCreated: getEnv("KAFKA_TOPIC_SUBSCRIPTIONS_CREATED", "subscriptions.created"),
 			TopicSubscriptionsDeleted: getEnv("KAFKA_TOPIC_SUBSCRIPTIONS_DELETED", "subscriptions.deleted"),
+			// Saga: Subscription flow
+			TopicSubscriptionPending:   getEnv("KAFKA_TOPIC_SUBSCRIPTION_PENDING", "subscription.pending"),
+			TopicSubscriptionActivated: getEnv("KAFKA_TOPIC_SUBSCRIPTION_ACTIVATED", "subscription.activated"),
+			TopicSubscriptionFailed:    getEnv("KAFKA_TOPIC_SUBSCRIPTION_FAILED", "subscription.failed"),
+			// Saga: Unsubscription flow
+			TopicUnsubscriptionPending:   getEnv("KAFKA_TOPIC_UNSUBSCRIPTION_PENDING", "unsubscription.pending"),
+			TopicUnsubscriptionCompleted: getEnv("KAFKA_TOPIC_UNSUBSCRIPTION_COMPLETED", "unsubscription.completed"),
+			TopicUnsubscriptionFailed:    getEnv("KAFKA_TOPIC_UNSUBSCRIPTION_FAILED", "unsubscription.failed"),
 		},
 		Logging: LoggingConfig{
 			Level: getEnv("LOG_LEVEL", "info"),

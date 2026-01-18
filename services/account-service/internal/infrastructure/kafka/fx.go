@@ -12,11 +12,14 @@ import (
 
 // Module provides Kafka producer and consumer for fx DI
 var Module = fx.Module("kafka",
-	fx.Provide(NewKafkaProducerFx),
+	fx.Provide(
+		NewKafkaProducerFx,
+		NewSagaProducerFx,
+	),
 	fx.Invoke(registerKafkaConsumer),
 )
 
-// NewKafkaProducerFx creates a Kafka producer for fx DI
+// NewKafkaProducerFx creates a Kafka producer for news events
 func NewKafkaProducerFx(
 	lc fx.Lifecycle,
 	kafkaCfg *config.KafkaConfig,
@@ -40,23 +43,44 @@ func NewKafkaProducerFx(
 	return producer, nil
 }
 
+// NewSagaProducerFx creates a Kafka producer for Saga events
+func NewSagaProducerFx(
+	lc fx.Lifecycle,
+	kafkaCfg *config.KafkaConfig,
+	logger zerolog.Logger,
+) (deps.SagaProducer, error) {
+	producer, err := NewSagaProducer(kafkaCfg, logger.With().Str("component", "saga-producer").Logger())
+	if err != nil {
+		return nil, err
+	}
+
+	lc.Append(fx.Hook{
+		OnStop: func(ctx context.Context) error {
+			return producer.Close()
+		},
+	})
+
+	return producer, nil
+}
+
 // registerKafkaConsumer creates and registers Kafka consumer with lifecycle hooks
 func registerKafkaConsumer(
 	lc fx.Lifecycle,
 	kafkaCfg *config.KafkaConfig,
-	handler deps.SubscriptionEventHandler,
+	sagaHandler deps.SagaEventHandler,
 	logger zerolog.Logger,
 ) error {
+	// Saga topics only
 	topics := []string{
-		kafkaCfg.TopicSubscriptionsCreated,
-		kafkaCfg.TopicSubscriptionsDeleted,
+		kafkaCfg.TopicSubscriptionPending,
+		kafkaCfg.TopicUnsubscriptionPending,
 	}
 
 	consumer, err := NewKafkaConsumer(
 		kafkaCfg.Brokers,
 		kafkaCfg.GroupID,
 		topics,
-		handler,
+		sagaHandler,
 		logger.With().Str("component", "kafka-consumer").Logger(),
 	)
 	if err != nil {

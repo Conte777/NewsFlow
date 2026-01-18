@@ -251,6 +251,27 @@ func (m *accountManager) GetAvailableAccount() (domain.TelegramClient, error) {
 	return nil, domain.ErrNoActiveAccounts
 }
 
+// GetAccountByPhone returns an account by phone number
+func (m *accountManager) GetAccountByPhone(phoneNumber string) (domain.TelegramClient, error) {
+	if m.isShutdown.Load() {
+		return nil, fmt.Errorf("account manager is shut down")
+	}
+
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	client, exists := m.accounts[phoneNumber]
+	if !exists {
+		return nil, fmt.Errorf("account not found: %s", phoneNumber)
+	}
+
+	if !client.IsConnected() {
+		return nil, fmt.Errorf("account %s is not connected", phoneNumber)
+	}
+
+	return client, nil
+}
+
 // GetAllAccounts returns all managed accounts
 func (m *accountManager) GetAllAccounts() []domain.TelegramClient {
 	m.mu.RLock()

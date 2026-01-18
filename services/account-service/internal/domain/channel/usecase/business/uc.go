@@ -89,10 +89,12 @@ func (u *UseCase) Subscribe(ctx context.Context, channelID, channelName string) 
 		}
 	}
 
-	// Save to repository
-	if err := u.channelRepo.AddChannel(ctx, channelID, channelName); err != nil {
+	// Save to repository with account binding
+	phoneNumber := client.GetAccountID() // Returns phone_number
+	if err := u.channelRepo.AddChannelForAccount(ctx, phoneNumber, channelID, channelName); err != nil {
 		u.logger.Error().Err(err).
 			Str("channel_id", channelID).
+			Str("phone_number", phoneNumber).
 			Msg("Failed to save channel subscription")
 		u.metrics.RecordSubscriptionError("repository_save_failed")
 		return err
@@ -116,7 +118,7 @@ func (u *UseCase) Subscribe(ctx context.Context, channelID, channelName string) 
 	return nil
 }
 
-// Unsubscribe unsubscribes from a channel
+// Unsubscribe unsubscribes from a channel using the account that is subscribed to it
 func (u *UseCase) Unsubscribe(ctx context.Context, channelID string) error {
 	start := time.Now()
 
@@ -141,18 +143,31 @@ func (u *UseCase) Unsubscribe(ctx context.Context, channelID string) error {
 		return channelerrors.ErrChannelNotFound
 	}
 
-	// Get available account
-	client, err := u.accountManager.GetAvailableAccount()
+	// Get phone_number of the account that subscribed to this channel
+	phoneNumber, err := u.channelRepo.GetAccountPhoneForChannel(ctx, channelID)
 	if err != nil {
-		u.logger.Error().Err(err).Msg("Failed to get available account")
-		u.metrics.RecordUnsubscriptionError("no_active_accounts")
+		u.logger.Error().Err(err).
+			Str("channel_id", channelID).
+			Msg("Failed to get account for channel")
+		u.metrics.RecordUnsubscriptionError("account_lookup_failed")
+		return err
+	}
+
+	// Get the specific client by phone number
+	client, err := u.accountManager.GetAccountByPhone(phoneNumber)
+	if err != nil {
+		u.logger.Error().Err(err).
+			Str("phone_number", phoneNumber).
+			Msg("Failed to get account by phone")
+		u.metrics.RecordUnsubscriptionError("account_not_found")
 		return domain.ErrNoActiveAccounts
 	}
 
-	// Leave channel
+	// Leave channel using the correct account
 	if err := client.LeaveChannel(ctx, channelID); err != nil {
 		u.logger.Error().Err(err).
 			Str("channel_id", channelID).
+			Str("phone_number", phoneNumber).
 			Msg("Failed to leave channel")
 		u.metrics.RecordUnsubscriptionError("leave_failed")
 		return channelerrors.ErrUnsubscriptionFailed
@@ -179,6 +194,7 @@ func (u *UseCase) Unsubscribe(ctx context.Context, channelID string) error {
 
 	u.logger.Info().
 		Str("channel_id", channelID).
+		Str("phone_number", phoneNumber).
 		Msg("Successfully unsubscribed from channel")
 
 	return nil

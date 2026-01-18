@@ -15,7 +15,7 @@ const maxRetries = 3
 type KafkaConsumer struct {
 	consumerGroup sarama.ConsumerGroup
 	topics        []string
-	handler       deps.SubscriptionEventHandler
+	sagaHandler   deps.SagaEventHandler
 	logger        zerolog.Logger
 }
 
@@ -24,7 +24,7 @@ func NewKafkaConsumer(
 	brokers []string,
 	groupID string,
 	topics []string,
-	handler deps.SubscriptionEventHandler,
+	sagaHandler deps.SagaEventHandler,
 	logger zerolog.Logger,
 ) (*KafkaConsumer, error) {
 	config := sarama.NewConfig()
@@ -46,7 +46,7 @@ func NewKafkaConsumer(
 	return &KafkaConsumer{
 		consumerGroup: consumerGroup,
 		topics:        topics,
-		handler:       handler,
+		sagaHandler:   sagaHandler,
 		logger:        logger,
 	}, nil
 }
@@ -163,10 +163,14 @@ func (c *KafkaConsumer) processMessage(ctx context.Context, msg *sarama.Consumer
 // handleMessage routes the message to the appropriate handler based on topic
 func (c *KafkaConsumer) handleMessage(ctx context.Context, msg *sarama.ConsumerMessage) error {
 	switch msg.Topic {
-	case "subscriptions.created":
-		return c.handleSubscriptionCreated(ctx, msg)
-	case "subscriptions.deleted":
-		return c.handleSubscriptionDeleted(ctx, msg)
+	// Saga: Subscription flow
+	case "subscription.pending":
+		return c.handleSubscriptionPending(ctx, msg)
+
+	// Saga: Unsubscription flow
+	case "unsubscription.pending":
+		return c.handleUnsubscriptionPending(ctx, msg)
+
 	default:
 		c.logger.Warn().
 			Str("topic", msg.Topic).
@@ -175,41 +179,63 @@ func (c *KafkaConsumer) handleMessage(ctx context.Context, msg *sarama.ConsumerM
 	}
 }
 
-// handleSubscriptionCreated processes subscription created events
-func (c *KafkaConsumer) handleSubscriptionCreated(ctx context.Context, msg *sarama.ConsumerMessage) error {
-	var event SubscriptionCreatedEvent
+// Saga: Subscription flow handlers
+
+// handleSubscriptionPending processes subscription.pending events from subscription-service
+func (c *KafkaConsumer) handleSubscriptionPending(ctx context.Context, msg *sarama.ConsumerMessage) error {
+	var event SubscriptionPendingEvent
 	if err := json.Unmarshal(msg.Value, &event); err != nil {
 		c.logger.Error().
 			Err(err).
 			Str("topic", msg.Topic).
-			Msg("failed to unmarshal subscription created event")
+			Msg("failed to unmarshal subscription.pending event")
 		return nil // Don't retry unmarshal errors
 	}
 
+	userID, err := event.GetUserIDInt64()
+	if err != nil {
+		c.logger.Error().
+			Err(err).
+			Str("user_id", event.UserID).
+			Msg("invalid user_id in subscription.pending event")
+		return nil
+	}
+
 	c.logger.Info().
-		Int64("user_id", event.UserID).
+		Int64("user_id", userID).
 		Str("channel_id", event.ChannelID).
 		Str("channel_name", event.ChannelName).
-		Msg("processing subscription created event")
+		Msg("processing subscription.pending event")
 
-	return c.handler.HandleSubscriptionCreated(ctx, event.UserID, event.ChannelID, event.ChannelName)
+	return c.sagaHandler.HandleSubscriptionPending(ctx, userID, event.ChannelID, event.ChannelName)
 }
 
-// handleSubscriptionDeleted processes subscription deleted events
-func (c *KafkaConsumer) handleSubscriptionDeleted(ctx context.Context, msg *sarama.ConsumerMessage) error {
-	var event SubscriptionDeletedEvent
+// Saga: Unsubscription flow handlers
+
+// handleUnsubscriptionPending processes unsubscription.pending events from subscription-service
+func (c *KafkaConsumer) handleUnsubscriptionPending(ctx context.Context, msg *sarama.ConsumerMessage) error {
+	var event UnsubscriptionPendingEvent
 	if err := json.Unmarshal(msg.Value, &event); err != nil {
 		c.logger.Error().
 			Err(err).
 			Str("topic", msg.Topic).
-			Msg("failed to unmarshal subscription deleted event")
+			Msg("failed to unmarshal unsubscription.pending event")
 		return nil // Don't retry unmarshal errors
 	}
 
-	c.logger.Info().
-		Int64("user_id", event.UserID).
-		Str("channel_id", event.ChannelID).
-		Msg("processing subscription deleted event")
+	userID, err := event.GetUserIDInt64()
+	if err != nil {
+		c.logger.Error().
+			Err(err).
+			Str("user_id", event.UserID).
+			Msg("invalid user_id in unsubscription.pending event")
+		return nil
+	}
 
-	return c.handler.HandleSubscriptionDeleted(ctx, event.UserID, event.ChannelID)
+	c.logger.Info().
+		Int64("user_id", userID).
+		Str("channel_id", event.ChannelID).
+		Msg("processing unsubscription.pending event")
+
+	return c.sagaHandler.HandleUnsubscriptionPending(ctx, userID, event.ChannelID)
 }

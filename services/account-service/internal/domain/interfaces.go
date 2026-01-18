@@ -50,6 +50,9 @@ type AccountManager interface {
 	// GetAvailableAccount returns an available account for operation
 	GetAvailableAccount() (TelegramClient, error)
 
+	// GetAccountByPhone returns an account by phone number
+	GetAccountByPhone(phoneNumber string) (TelegramClient, error)
+
 	// GetAllAccounts returns all managed accounts
 	GetAllAccounts() []TelegramClient
 

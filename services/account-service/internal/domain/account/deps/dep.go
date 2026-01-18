@@ -21,6 +21,7 @@ type TelegramClient interface {
 // AccountManager manages multiple Telegram accounts
 type AccountManager interface {
 	GetAvailableAccount() (TelegramClient, error)
+	GetAccountByPhone(phoneNumber string) (TelegramClient, error)
 	GetAllAccounts() []TelegramClient
 	AddAccount(client TelegramClient) error
 	RemoveAccount(accountID string) error

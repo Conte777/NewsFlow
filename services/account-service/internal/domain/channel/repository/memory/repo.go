@@ -101,3 +101,27 @@ func (r *channelRepository) UpdateLastProcessedMessageID(ctx context.Context, ch
 	channel.LastProcessedMessageID = messageID
 	return nil
 }
+
+// AddChannelForAccount adds a channel subscription (memory implementation ignores account binding)
+func (r *channelRepository) AddChannelForAccount(ctx context.Context, phoneNumber, channelID, channelName string) error {
+	return r.AddChannel(ctx, channelID, channelName)
+}
+
+// RemoveChannelForAccount removes a channel subscription (memory implementation ignores account binding)
+func (r *channelRepository) RemoveChannelForAccount(ctx context.Context, phoneNumber, channelID string) error {
+	return r.RemoveChannel(ctx, channelID)
+}
+
+// GetChannelsByAccount returns all channels (memory implementation ignores account binding)
+func (r *channelRepository) GetChannelsByAccount(ctx context.Context, phoneNumber string) ([]entities.ChannelSubscription, error) {
+	return r.GetAllChannels(ctx)
+}
+
+// GetAccountPhoneForChannel returns empty string (memory implementation has no account binding)
+func (r *channelRepository) GetAccountPhoneForChannel(ctx context.Context, channelID string) (string, error) {
+	_, err := r.GetChannel(ctx, channelID)
+	if err != nil {
+		return "", err
+	}
+	return "", nil
+}
