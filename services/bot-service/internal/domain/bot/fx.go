@@ -2,6 +2,8 @@
 package bot
 
 import (
+	"context"
+
 	tgbot "github.com/go-telegram/bot"
 	"github.com/rs/zerolog"
 	"go.uber.org/fx"
@@ -47,10 +49,13 @@ func provideTelegramHandlers(uc *buissines.UseCase, bot *telegram.Bot, logger ze
 
 // wireAndRegister resolves cyclic dependency and registers routes
 func wireAndRegister(
+	lc fx.Lifecycle,
 	uc *buissines.UseCase,
 	handlers *telegramDelivery.Handlers,
 	router *telegramDelivery.Router,
 	bot *telegram.Bot,
+	kafkaCfg *config.KafkaConfig,
+	logger zerolog.Logger,
 ) {
 	// Handlers implements deps.TelegramSender interface
 	// This resolves the cyclic dependency: UseCase -> TelegramSender <- Handlers -> UseCase
@@ -58,6 +63,24 @@ func wireAndRegister(
 
 	// Register Telegram command routes
 	router.RegisterRoutes(bot.Raw())
+
+	// Create and register rejection consumer (Saga workflow)
+	// Handlers implements TelegramSender, so we can use it to send rejection notifications
+	rejectionConsumer := workers.NewRejectionConsumer(
+		kafkaCfg,
+		handlers,
+		logger.With().Str("component", "rejection-consumer").Logger(),
+	)
+
+	lc.Append(fx.Hook{
+		OnStart: func(ctx context.Context) error {
+			rejectionConsumer.Start(ctx)
+			return nil
+		},
+		OnStop: func(ctx context.Context) error {
+			return rejectionConsumer.Stop()
+		},
+	})
 }
 
 // provideSubscriptionRepository creates subscription repository (gRPC client)

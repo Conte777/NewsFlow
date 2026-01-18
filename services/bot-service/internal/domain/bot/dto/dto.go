@@ -76,3 +76,12 @@ type ToggleSubscriptionResponse struct {
 	Message string `json:"message"`
 	Action  string `json:"action"` // "subscribed" or "unsubscribed"
 }
+
+// RejectedEvent represents a Kafka event for subscription/unsubscription rejection (Saga)
+type RejectedEvent struct {
+	Type        string `json:"type"` // "subscription_rejected" or "unsubscription_rejected"
+	UserID      string `json:"user_id"`
+	ChannelID   string `json:"channel_id"`
+	ChannelName string `json:"channel_name"`
+	Reason      string `json:"reason"`
+}

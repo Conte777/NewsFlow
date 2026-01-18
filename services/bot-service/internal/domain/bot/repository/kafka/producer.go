@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strconv"
+	"time"
 
 	"github.com/IBM/sarama"
 	"github.com/rs/zerolog"
@@ -18,6 +19,7 @@ import (
 // Producer implements deps.SubscriptionEventProducer
 type Producer struct {
 	producer sarama.SyncProducer
+	config   *config.KafkaConfig
 	logger   zerolog.Logger
 }
 
@@ -43,29 +45,32 @@ func NewProducer(cfg *config.KafkaConfig, logger zerolog.Logger) (deps.Subscript
 
 	return &Producer{
 		producer: producer,
+		config:   cfg,
 		logger:   logger,
 	}, nil
 }
 
-// SendSubscriptionCreated sends subscription created event to Kafka
+// SendSubscriptionCreated sends subscription.requested event to Kafka (Saga flow)
 func (p *Producer) SendSubscriptionCreated(ctx context.Context, subscription *entities.Subscription) error {
 	event := map[string]interface{}{
-		"type":         "subscription_created",
+		"type":         "subscription_requested",
 		"user_id":      strconv.FormatInt(subscription.UserID, 10),
 		"channel_id":   subscription.ChannelID,
 		"channel_name": subscription.ChannelName,
+		"timestamp":    time.Now().Unix(),
 	}
-	return p.sendEvent(ctx, "subscription.created", event)
+	return p.sendEvent(ctx, p.config.TopicSubscriptionRequested, event)
 }
 
-// SendSubscriptionDeleted sends subscription deleted event to Kafka
+// SendSubscriptionDeleted sends unsubscription.requested event to Kafka (Saga flow)
 func (p *Producer) SendSubscriptionDeleted(ctx context.Context, userID int64, channelID string) error {
 	event := map[string]interface{}{
-		"type":       "subscription_cancelled",
+		"type":       "unsubscription_requested",
 		"user_id":    strconv.FormatInt(userID, 10),
 		"channel_id": channelID,
+		"timestamp":  time.Now().Unix(),
 	}
-	return p.sendEvent(ctx, "subscription.cancelled", event)
+	return p.sendEvent(ctx, p.config.TopicUnsubscriptionRequested, event)
 }
 
 // sendEvent sends an event to specified Kafka topic

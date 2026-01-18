@@ -10,11 +10,25 @@ import (
 // Module provides workers for fx dependency injection
 var Module = fx.Module("bot-workers",
 	fx.Provide(NewNewsConsumer),
-	fx.Invoke(registerLifecycle),
+	fx.Invoke(registerNewsConsumerLifecycle),
 )
 
-// registerLifecycle registers worker lifecycle hooks
-func registerLifecycle(lc fx.Lifecycle, consumer *NewsConsumer) {
+// registerNewsConsumerLifecycle registers news consumer lifecycle hooks
+func registerNewsConsumerLifecycle(lc fx.Lifecycle, consumer *NewsConsumer) {
+	lc.Append(fx.Hook{
+		OnStart: func(ctx context.Context) error {
+			consumer.Start(ctx)
+			return nil
+		},
+		OnStop: func(ctx context.Context) error {
+			return consumer.Stop()
+		},
+	})
+}
+
+// registerRejectionConsumerLifecycle registers rejection consumer lifecycle hooks
+// Called from bot/fx.go after TelegramSender is wired
+func registerRejectionConsumerLifecycle(lc fx.Lifecycle, consumer *RejectionConsumer) {
 	lc.Append(fx.Hook{
 		OnStart: func(ctx context.Context) error {
 			consumer.Start(ctx)

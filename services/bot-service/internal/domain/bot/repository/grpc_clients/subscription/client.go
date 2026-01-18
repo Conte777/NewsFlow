@@ -67,32 +67,6 @@ func (c *Client) GetUserSubscriptions(ctx context.Context, userID int64) ([]enti
 	return result, nil
 }
 
-// SaveSubscription is not implemented - subscriptions are created via Kafka
-func (c *Client) SaveSubscription(ctx context.Context, subscription *entities.Subscription) error {
-	return nil
-}
-
-// DeleteSubscription is not implemented - subscriptions are deleted via Kafka
-func (c *Client) DeleteSubscription(ctx context.Context, userID int64, channelID string) error {
-	return nil
-}
-
-// CheckSubscription checks if user is subscribed to a channel
-func (c *Client) CheckSubscription(ctx context.Context, userID int64, channelID string) (bool, error) {
-	subs, err := c.GetUserSubscriptions(ctx, userID)
-	if err != nil {
-		return false, err
-	}
-
-	for _, sub := range subs {
-		if sub.ChannelID == channelID {
-			return true, nil
-		}
-	}
-
-	return false, nil
-}
-
 // Close closes the gRPC connection
 func (c *Client) Close() error {
 	if c.conn != nil {

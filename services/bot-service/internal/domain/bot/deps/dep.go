@@ -29,17 +29,8 @@ type SubscriptionEventProducer interface {
 	Close() error
 }
 
-// SubscriptionRepository defines interface for subscription data access
+// SubscriptionRepository defines interface for subscription data access (gRPC client)
 type SubscriptionRepository interface {
-	// GetUserSubscriptions returns list of user subscriptions
+	// GetUserSubscriptions returns list of user subscriptions via gRPC
 	GetUserSubscriptions(ctx context.Context, userID int64) ([]entities.Subscription, error)
-
-	// SaveSubscription saves a user subscription
-	SaveSubscription(ctx context.Context, subscription *entities.Subscription) error
-
-	// DeleteSubscription deletes a user subscription
-	DeleteSubscription(ctx context.Context, userID int64, channelID string) error
-
-	// CheckSubscription checks if user is subscribed to a channel
-	CheckSubscription(ctx context.Context, userID int64, channelID string) (bool, error)
 }

@@ -78,34 +78,18 @@ func (uc *UseCase) HandleHelp(ctx context.Context) (*dto.CommandResponse, error)
 	return &dto.CommandResponse{Message: message}, nil
 }
 
-// HandleToggleSubscription handles toggle subscription logic
-// If user is subscribed - unsubscribe, if not - subscribe
+// HandleToggleSubscription handles toggle subscription logic (Saga flow)
+// Sends subscription.requested event - subscription-service determines action:
+// - If not subscribed: creates pending subscription
+// - If already subscribed: initiates unsubscription
+// User receives immediate response, errors are sent via rejection events
 func (uc *UseCase) HandleToggleSubscription(ctx context.Context, req *dto.ToggleSubscriptionRequest) (*dto.ToggleSubscriptionResponse, error) {
 	uc.logger.Info().
 		Int64("user_id", req.UserID).
 		Str("channel_id", req.ChannelID).
-		Msg("Processing toggle subscription request")
+		Msg("Processing toggle subscription request (Saga flow)")
 
-	// Check if already subscribed via gRPC
-	isSubscribed, err := uc.repository.CheckSubscription(ctx, req.UserID, req.ChannelID)
-	if err != nil {
-		uc.logger.Error().Err(err).Msg("Failed to check subscription status")
-		return nil, fmt.Errorf("failed to check subscription: %w", err)
-	}
-
-	if isSubscribed {
-		// Unsubscribe
-		if err := uc.producer.SendSubscriptionDeleted(ctx, req.UserID, req.ChannelID); err != nil {
-			uc.logger.Error().Err(err).Msg("Failed to send unsubscription event")
-			return nil, fmt.Errorf("failed to unsubscribe: %w", err)
-		}
-		return &dto.ToggleSubscriptionResponse{
-			Message: fmt.Sprintf("✅ Вы отписались от канала %s", req.ChannelID),
-			Action:  "unsubscribed",
-		}, nil
-	}
-
-	// Subscribe
+	// Send subscription.requested event - subscription-service handles toggle logic
 	subscription := &entities.Subscription{
 		UserID:      req.UserID,
 		ChannelID:   req.ChannelID,
@@ -113,13 +97,15 @@ func (uc *UseCase) HandleToggleSubscription(ctx context.Context, req *dto.Toggle
 		CreatedAt:   time.Now(),
 	}
 	if err := uc.producer.SendSubscriptionCreated(ctx, subscription); err != nil {
-		uc.logger.Error().Err(err).Msg("Failed to send subscription event")
-		return nil, fmt.Errorf("failed to subscribe: %w", err)
+		uc.logger.Error().Err(err).Msg("Failed to send subscription request event")
+		return nil, fmt.Errorf("failed to send subscription request: %w", err)
 	}
 
+	// Immediate response - actual result will come via Kafka events
+	// If error occurs, user will receive rejection notification
 	return &dto.ToggleSubscriptionResponse{
-		Message: fmt.Sprintf("✅ Вы подписались на канал %s", req.ChannelID),
-		Action:  "subscribed",
+		Message: fmt.Sprintf("✅ Запрос на канал %s обрабатывается", req.ChannelID),
+		Action:  "requested",
 	}, nil
 }
 

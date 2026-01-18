@@ -32,6 +32,14 @@ type TelegramConfig struct {
 type KafkaConfig struct {
 	Brokers []string
 	GroupID string
+
+	// Saga: Subscription flow (produced)
+	TopicSubscriptionRequested   string // bot-service -> subscription-service
+	TopicUnsubscriptionRequested string // bot-service -> subscription-service
+
+	// Saga: Rejection flow (consumed for user notifications)
+	TopicSubscriptionRejected   string // subscription-service -> bot-service
+	TopicUnsubscriptionRejected string // subscription-service -> bot-service
 }
 
 // LoggingConfig holds logging configuration
@@ -86,6 +94,12 @@ func Load() (*Config, error) {
 		Kafka: KafkaConfig{
 			Brokers: strings.Split(getEnv("KAFKA_BROKERS", "localhost:9093"), ","),
 			GroupID: getEnv("KAFKA_GROUP_ID", "bot-service-group"),
+			// Saga: Subscription flow
+			TopicSubscriptionRequested:   getEnv("KAFKA_TOPIC_SUBSCRIPTION_REQUESTED", "subscription.requested"),
+			TopicUnsubscriptionRequested: getEnv("KAFKA_TOPIC_UNSUBSCRIPTION_REQUESTED", "unsubscription.requested"),
+			// Saga: Rejection flow
+			TopicSubscriptionRejected:   getEnv("KAFKA_TOPIC_SUBSCRIPTION_REJECTED", "subscription.rejected"),
+			TopicUnsubscriptionRejected: getEnv("KAFKA_TOPIC_UNSUBSCRIPTION_REJECTED", "unsubscription.rejected"),
 		},
 		GRPC: GRPCConfig{
 			SubscriptionServiceAddr: getEnv("SUBSCRIPTION_SERVICE_GRPC_ADDR", "localhost:50051"),
