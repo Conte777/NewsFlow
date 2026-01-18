@@ -42,7 +42,7 @@ func (s *Server) GetUserSubscriptions(ctx context.Context, req *pb.GetUserSubscr
 	result := make([]*pb.Subscription, len(subs))
 	for i, sub := range subs {
 		result[i] = &pb.Subscription{
-			UserId:      sub.UserID,
+			UserId:      sub.TelegramID,
 			ChannelId:   sub.ChannelID,
 			ChannelName: sub.ChannelName,
 			IsActive:    sub.IsActive,

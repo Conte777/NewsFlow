@@ -7,7 +7,6 @@ import (
 	"os"
 	"time"
 
-	"github.com/Conte777/NewsFlow/services/subscription-service/internal/domain/subscription/dto"
 	"github.com/IBM/sarama"
 	"github.com/rs/zerolog"
 )
@@ -59,26 +58,22 @@ func (p *KafkaProducer) Close() error {
 	return nil
 }
 
-func (p *KafkaProducer) NotifyAccountService(ctx context.Context, event *dto.SubscriptionEvent) error {
-	topic := getTopicByEventType(event.Type)
-
+// SendToTopic sends any event to a specific topic
+func (p *KafkaProducer) SendToTopic(ctx context.Context, topic string, key string, event any) error {
 	bytes, err := json.Marshal(event)
 	if err != nil {
 		p.errorCount++
 		p.logger.Error().
 			Err(err).
-			Str("event_type", event.Type).
-			Uint64("success_count", p.successCount).
+			Str("topic", topic).
 			Uint64("error_count", p.errorCount).
-			Msg("failed to marshal subscription event")
+			Msg("failed to marshal event")
 		return err
 	}
 
-	key := sarama.StringEncoder(event.UserID)
-
 	msg := &sarama.ProducerMessage{
 		Topic: topic,
-		Key:   key,
+		Key:   sarama.StringEncoder(key),
 		Value: sarama.ByteEncoder(bytes),
 	}
 
@@ -91,11 +86,10 @@ func (p *KafkaProducer) NotifyAccountService(ctx context.Context, event *dto.Sub
 		p.logger.Error().
 			Err(err).
 			Str("topic", topic).
-			Str("user_id", event.UserID).
+			Str("key", key).
 			Dur("latency", latency).
-			Uint64("success_count", p.successCount).
 			Uint64("error_count", p.errorCount).
-			Msg("failed to send subscription event to kafka")
+			Msg("failed to send event to kafka")
 		return err
 	}
 
@@ -103,26 +97,12 @@ func (p *KafkaProducer) NotifyAccountService(ctx context.Context, event *dto.Sub
 
 	p.logger.Info().
 		Str("topic", topic).
-		Str("user_id", event.UserID).
+		Str("key", key).
 		Int32("partition", partition).
 		Int64("offset", offset).
 		Dur("latency", latency).
 		Uint64("success_count", p.successCount).
-		Uint64("error_count", p.errorCount).
-		Msg("subscription event sent to kafka")
+		Msg("event sent to kafka")
 
 	return nil
-}
-
-func getTopicByEventType(eventType string) string {
-	switch eventType {
-	case "subscription_created":
-		return "subscription.created"
-	case "subscription_updated":
-		return "subscription.updated"
-	case "subscription_cancelled":
-		return "subscription.cancelled"
-	default:
-		return "subscription.unknown"
-	}
 }

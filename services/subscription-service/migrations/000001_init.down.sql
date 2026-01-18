@@ -1,13 +1,9 @@
--- Drop trigger
 DROP TRIGGER IF EXISTS update_subscriptions_updated_at ON subscriptions;
+DROP TRIGGER IF EXISTS update_channels_updated_at ON channels;
+DROP TRIGGER IF EXISTS update_users_updated_at ON users;
 
--- Drop function
-DROP FUNCTION IF EXISTS update_updated_at_column;
-
--- Drop indexes
-DROP INDEX IF EXISTS idx_subscriptions_is_active;
-DROP INDEX IF EXISTS idx_subscriptions_channel_id;
-DROP INDEX IF EXISTS idx_subscriptions_user_id;
-
--- Drop table
 DROP TABLE IF EXISTS subscriptions;
+DROP TABLE IF EXISTS channels;
+DROP TABLE IF EXISTS users;
+
+DROP FUNCTION IF EXISTS update_updated_at_column;
