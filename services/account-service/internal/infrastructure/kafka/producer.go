@@ -201,7 +201,6 @@ func (p *KafkaProducer) SendNewsReceived(ctx context.Context, news *domain.NewsI
 	}
 }
 
-// validateNewsItem validates NewsItem fields
 func validateNewsItem(news *domain.NewsItem) error {
 	if news.ChannelID == "" {
 		return fmt.Errorf("channel_id is required")
@@ -215,9 +214,6 @@ func validateNewsItem(news *domain.NewsItem) error {
 	return nil
 }
 
-// handleSuccesses processes successfully sent messages
-//
-// Runs in a separate goroutine and logs successful message deliveries.
 func (p *KafkaProducer) handleSuccesses() {
 	defer p.wg.Done()
 
@@ -232,10 +228,6 @@ func (p *KafkaProducer) handleSuccesses() {
 	p.logger.Info().Msg("Success handler stopped")
 }
 
-// handleErrors processes failed message deliveries
-//
-// Runs in a separate goroutine and logs errors.
-// Calls ErrorCallback if configured for custom error handling (e.g., DLQ, retry).
 func (p *KafkaProducer) handleErrors() {
 	defer p.wg.Done()
 

@@ -102,7 +102,6 @@ func (h *HealthHandler) Handle(ctx *fasthttp.RequestCtx) {
 	ctx.SetBody(body)
 }
 
-// checkComponents checks health of all service components
 func (h *HealthHandler) checkComponents() []ComponentHealth {
 	components := make([]ComponentHealth, 0, 3)
 

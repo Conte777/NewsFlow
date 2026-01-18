@@ -133,7 +133,6 @@ func (c *Config) Validate() error {
 	return nil
 }
 
-// getEnv gets environment variable with default value
 func getEnv(key, defaultValue string) string {
 	value := os.Getenv(key)
 	if value == "" {

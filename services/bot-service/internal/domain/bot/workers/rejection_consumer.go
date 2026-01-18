@@ -94,7 +94,6 @@ func (c *RejectionConsumer) Start(ctx context.Context) {
 	}()
 }
 
-// handleRejection processes rejection event and sends notification to user
 func (c *RejectionConsumer) handleRejection(ctx context.Context, data []byte) error {
 	var event dto.RejectedEvent
 	if err := json.Unmarshal(data, &event); err != nil {

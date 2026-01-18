@@ -139,7 +139,6 @@ func (c *KafkaConsumer) ConsumeClaim(session sarama.ConsumerGroupSession, claim 
 	return nil
 }
 
-// processMessage handles a single message with retry logic
 func (c *KafkaConsumer) processMessage(ctx context.Context, msg *sarama.ConsumerMessage) error {
 	var lastErr error
 
@@ -160,7 +159,6 @@ func (c *KafkaConsumer) processMessage(ctx context.Context, msg *sarama.Consumer
 	return lastErr
 }
 
-// handleMessage routes the message to the appropriate handler based on topic
 func (c *KafkaConsumer) handleMessage(ctx context.Context, msg *sarama.ConsumerMessage) error {
 	switch msg.Topic {
 	// Saga: Subscription flow
@@ -179,9 +177,6 @@ func (c *KafkaConsumer) handleMessage(ctx context.Context, msg *sarama.ConsumerM
 	}
 }
 
-// Saga: Subscription flow handlers
-
-// handleSubscriptionPending processes subscription.pending events from subscription-service
 func (c *KafkaConsumer) handleSubscriptionPending(ctx context.Context, msg *sarama.ConsumerMessage) error {
 	var event SubscriptionPendingEvent
 	if err := json.Unmarshal(msg.Value, &event); err != nil {
@@ -210,9 +205,6 @@ func (c *KafkaConsumer) handleSubscriptionPending(ctx context.Context, msg *sara
 	return c.sagaHandler.HandleSubscriptionPending(ctx, userID, event.ChannelID, event.ChannelName)
 }
 
-// Saga: Unsubscription flow handlers
-
-// handleUnsubscriptionPending processes unsubscription.pending events from subscription-service
 func (c *KafkaConsumer) handleUnsubscriptionPending(ctx context.Context, msg *sarama.ConsumerMessage) error {
 	var event UnsubscriptionPendingEvent
 	if err := json.Unmarshal(msg.Value, &event); err != nil {

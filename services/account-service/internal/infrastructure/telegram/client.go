@@ -142,7 +142,6 @@ func NewMTProtoClientWithDB(cfg MTProtoClientConfig, db *gorm.DB) (*MTProtoClien
 	return client, nil
 }
 
-// getSessionStorage returns the appropriate session storage (postgres or file)
 func (c *MTProtoClient) getSessionStorage() session.Storage {
 	if c.postgresStorage != nil {
 		return c.postgresStorage
@@ -331,7 +330,6 @@ func (c *MTProtoClient) GetAccountID() string {
 	return c.phoneNumber
 }
 
-// validateChannelID validates channel ID format
 func validateChannelID(channelID string) error {
 	if channelID == "" {
 		return domain.ErrInvalidChannelID
@@ -690,8 +688,6 @@ func (c *MTProtoClient) GetChannelMessages(ctx context.Context, channelID string
 	return newsItems, nil
 }
 
-// processMessagesSlice processes a slice of Telegram messages and converts them to NewsItems
-// This helper function eliminates code duplication between different message type handlers
 func (c *MTProtoClient) processMessagesSlice(messages []tg.MessageClass, channelID, channelName string, offset, limit int) []domain.NewsItem {
 	// Handle empty message list
 	if len(messages) == 0 {
@@ -984,7 +980,6 @@ func (c *MTProtoClient) cacheChannelInfo(channelID string, info *domain.ChannelI
 	}
 }
 
-// getFullChannelInfo retrieves full channel information using channels.getFullChannel
 func (c *MTProtoClient) getFullChannelInfo(ctx context.Context, api *tg.Client, channel *tg.Channel) (*tg.ChannelFull, error) {
 	inputChannel := &tg.InputChannel{
 		ChannelID:  channel.ID,

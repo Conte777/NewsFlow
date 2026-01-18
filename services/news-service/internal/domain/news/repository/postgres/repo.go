@@ -10,7 +10,6 @@ import (
 	"gorm.io/gorm"
 )
 
-// newsRepository implements deps.NewsRepository
 type newsRepository struct {
 	db *gorm.DB
 }
@@ -136,4 +135,21 @@ func (r *deliveredNewsRepository) GetUserDeliveredNews(ctx context.Context, user
 	}
 
 	return deliveredNews, nil
+}
+
+// GetUsersByChannelID returns distinct users who received news from channel (for fallback)
+func (r *deliveredNewsRepository) GetUsersByChannelID(ctx context.Context, channelID string) ([]int64, error) {
+	var userIDs []int64
+	result := r.db.WithContext(ctx).
+		Model(&entities.DeliveredNews{}).
+		Select("DISTINCT delivered_news.user_id").
+		Joins("JOIN news ON delivered_news.news_id = news.id").
+		Where("news.channel_id = ?", channelID).
+		Pluck("user_id", &userIDs)
+
+	if result.Error != nil {
+		return nil, domainerrors.ErrDatabaseOperation
+	}
+
+	return userIDs, nil
 }

@@ -145,7 +145,6 @@ func (c *DatabaseConfig) GetDSN() string {
 	)
 }
 
-// getEnv gets environment variable with default value
 func getEnv(key, defaultValue string) string {
 	value := os.Getenv(key)
 	if value == "" {
@@ -154,7 +153,6 @@ func getEnv(key, defaultValue string) string {
 	return value
 }
 
-// getEnvDuration gets environment variable as duration with default value
 func getEnvDuration(key string, defaultValue time.Duration) time.Duration {
 	value := os.Getenv(key)
 	if value == "" {

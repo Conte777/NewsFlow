@@ -703,7 +703,6 @@ func TestExtractMediaURLs_Empty(t *testing.T) {
 	}
 }
 
-// createTestLogger creates a no-op logger for tests
 func createTestLogger() zerolog.Logger {
 	return zerolog.New(nil).Level(zerolog.Disabled)
 }

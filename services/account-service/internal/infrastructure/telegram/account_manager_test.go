@@ -57,7 +57,6 @@ func (m *mockTelegramClient) setConnected(connected bool) {
 	m.connected = connected
 }
 
-// createTestClient creates a mock TelegramClient for testing
 func createTestClient(accountID string, connected bool) *mockTelegramClient {
 	return &mockTelegramClient{
 		accountID: accountID,

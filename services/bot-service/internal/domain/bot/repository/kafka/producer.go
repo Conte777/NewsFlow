@@ -73,7 +73,6 @@ func (p *Producer) SendSubscriptionDeleted(ctx context.Context, userID int64, ch
 	return p.sendEvent(ctx, p.config.TopicUnsubscriptionRequested, event)
 }
 
-// sendEvent sends an event to specified Kafka topic
 func (p *Producer) sendEvent(ctx context.Context, topic string, event interface{}) error {
 	jsonData, err := json.Marshal(event)
 	if err != nil {

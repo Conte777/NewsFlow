@@ -230,7 +230,6 @@ func (h *Handlers) HandleList(ctx context.Context, bot *tgbot.Bot, update *model
 	h.logCommand(int64(userID), "/list", "success")
 }
 
-// formatSubscriptions formats subscriptions to string
 func (h *Handlers) formatSubscriptions(resp *dto.SubscriptionListResponse) string {
 	if len(resp.Subscriptions) == 0 {
 		return "📋 У вас пока нет подписок"
@@ -246,14 +245,12 @@ func (h *Handlers) formatSubscriptions(resp *dto.SubscriptionListResponse) strin
 	return result.String()
 }
 
-// sendResponse sends response message to chat
 func (h *Handlers) sendResponse(ctx context.Context, chatID int64, text string) {
 	if err := h.SendMessage(ctx, chatID, text); err != nil {
 		h.logger.Error().Int64("chat_id", chatID).Err(err).Msg("Failed to send Telegram response")
 	}
 }
 
-// sendSingleMessage sends a single message
 func (h *Handlers) sendSingleMessage(ctx context.Context, userID int64, text string) error {
 	msgCtx, cancel := context.WithTimeout(ctx, RequestTimeout)
 	defer cancel()
@@ -274,7 +271,6 @@ func (h *Handlers) sendSingleMessage(ctx context.Context, userID int64, text str
 	return nil
 }
 
-// sendSplitMessage splits long message and sends parts
 func (h *Handlers) sendSplitMessage(ctx context.Context, userID int64, text string) error {
 	h.logger.Info().Int64("user_id", userID).Int("total_length", len(text)).Msg("Splitting long message into parts")
 
@@ -319,7 +315,6 @@ func (h *Handlers) sendSplitMessage(ctx context.Context, userID int64, text stri
 	return nil
 }
 
-// splitMessage splits text into parts not exceeding max length
 func (h *Handlers) splitMessage(text string) []string {
 	if len(text) <= MaxMessageLength {
 		return []string{text}
@@ -362,7 +357,6 @@ func (h *Handlers) splitMessage(text string) []string {
 	return parts
 }
 
-// splitLongLine splits very long line into parts
 func (h *Handlers) splitLongLine(line string) []string {
 	if len(line) <= MaxMessageLength {
 		return []string{line}
@@ -395,7 +389,6 @@ func (h *Handlers) splitLongLine(line string) []string {
 	return parts
 }
 
-// handleSendMessageError handles message sending errors
 func (h *Handlers) handleSendMessageError(userID int64, err error) error {
 	errorMsg := err.Error()
 
@@ -438,7 +431,6 @@ func (h *Handlers) logMessageSend(userID int64, length int, success bool, err er
 	logEvent.Msg("Message send attempt completed")
 }
 
-// validateAndClassifyMedia validates URLs and determines media type
 func (h *Handlers) validateAndClassifyMedia(mediaURLs []string) ([]MediaInfo, error) {
 	var mediaInfos []MediaInfo
 
@@ -462,7 +454,6 @@ func (h *Handlers) validateAndClassifyMedia(mediaURLs []string) ([]MediaInfo, er
 	return mediaInfos, nil
 }
 
-// validateMediaURL validates media URL
 func (h *Handlers) validateMediaURL(mediaURL string) error {
 	parsedURL, err := url.Parse(mediaURL)
 	if err != nil {
@@ -522,7 +513,6 @@ func (h *Handlers) classifyMedia(mediaURL string) (MediaInfo, error) {
 	}, nil
 }
 
-// determineMediaType determines media type by MIME type and extension
 func (h *Handlers) determineMediaType(mimeType, ext string) MediaType {
 	switch {
 	case strings.HasPrefix(mimeType, "image/"):
@@ -545,7 +535,6 @@ func (h *Handlers) determineMediaType(mimeType, ext string) MediaType {
 	}
 }
 
-// checkFileSize checks file size against Telegram limits
 func (h *Handlers) checkFileSize(mediaInfo MediaInfo) error {
 	req, err := http.NewRequest("HEAD", mediaInfo.URL, nil)
 	if err != nil {
@@ -585,7 +574,6 @@ func (h *Handlers) checkFileSize(mediaInfo MediaInfo) error {
 	return nil
 }
 
-// sendSingleMedia sends single media with text
 func (h *Handlers) sendSingleMedia(ctx context.Context, userID int64, text string, mediaInfo MediaInfo) error {
 	h.logger.Debug().Int64("user_id", userID).Str("media_type", string(mediaInfo.Type)).Str("url", mediaInfo.URL).Msg("Sending single media")
 
@@ -622,7 +610,6 @@ func (h *Handlers) sendSingleMedia(ctx context.Context, userID int64, text strin
 	return nil
 }
 
-// sendPhoto sends photo
 func (h *Handlers) sendPhoto(ctx context.Context, userID int64, text string, mediaInfo MediaInfo) error {
 	msgCtx, cancel := context.WithTimeout(ctx, RequestTimeout)
 	defer cancel()
@@ -637,7 +624,6 @@ func (h *Handlers) sendPhoto(ctx context.Context, userID int64, text string, med
 	return err
 }
 
-// sendVideo sends video
 func (h *Handlers) sendVideo(ctx context.Context, userID int64, text string, mediaInfo MediaInfo) error {
 	msgCtx, cancel := context.WithTimeout(ctx, RequestTimeout)
 	defer cancel()
@@ -652,7 +638,6 @@ func (h *Handlers) sendVideo(ctx context.Context, userID int64, text string, med
 	return err
 }
 
-// sendDocument sends document
 func (h *Handlers) sendDocument(ctx context.Context, userID int64, text string, mediaInfo MediaInfo) error {
 	msgCtx, cancel := context.WithTimeout(ctx, RequestTimeout)
 	defer cancel()
@@ -667,7 +652,6 @@ func (h *Handlers) sendDocument(ctx context.Context, userID int64, text string, 
 	return err
 }
 
-// sendMediaGroup sends media group (2-10 files)
 func (h *Handlers) sendMediaGroup(ctx context.Context, userID int64, text string, mediaInfos []MediaInfo) error {
 	h.logger.Debug().Int64("user_id", userID).Int("media_count", len(mediaInfos)).Msg("Sending media group")
 
@@ -697,7 +681,6 @@ func (h *Handlers) sendMediaGroup(ctx context.Context, userID int64, text string
 	return nil
 }
 
-// sendMultipleMediaGroups sends multiple media groups (more than 10 files)
 func (h *Handlers) sendMultipleMediaGroups(ctx context.Context, userID int64, text string, mediaInfos []MediaInfo) error {
 	h.logger.Info().Int64("user_id", userID).Int("total_media", len(mediaInfos)).Msg("Sending multiple media groups")
 

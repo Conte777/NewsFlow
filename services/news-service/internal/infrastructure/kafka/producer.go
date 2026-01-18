@@ -18,7 +18,7 @@ const (
 
 type NewsDeliveryMessage struct {
 	NewsID      uint     `json:"news_id"`
-	UserID      int64    `json:"user_id"`
+	UserIDs     []int64  `json:"user_ids"`
 	ChannelID   string   `json:"channel_id"`
 	ChannelName string   `json:"channel_name"`
 	Content     string   `json:"content"`
@@ -51,10 +51,10 @@ func NewProducer(cfg *config.KafkaConfig, logger zerolog.Logger) (deps.KafkaProd
 	}, nil
 }
 
-func (p *Producer) SendNewsDelivery(ctx context.Context, newsID uint, userID int64, channelID, channelName, content string, mediaURLs []string) error {
+func (p *Producer) SendNewsDelivery(ctx context.Context, newsID uint, userIDs []int64, channelID, channelName, content string, mediaURLs []string) error {
 	msg := NewsDeliveryMessage{
 		NewsID:      newsID,
-		UserID:      userID,
+		UserIDs:     userIDs,
 		ChannelID:   channelID,
 		ChannelName: channelName,
 		Content:     content,
@@ -67,7 +67,7 @@ func (p *Producer) SendNewsDelivery(ctx context.Context, newsID uint, userID int
 		return fmt.Errorf("failed to marshal message: %w", err)
 	}
 
-	key := fmt.Sprintf("%d-%d", newsID, userID)
+	key := fmt.Sprintf("news-%d", newsID)
 
 	err = p.writer.WriteMessages(ctx, kafka.Message{
 		Key:   []byte(key),
@@ -76,15 +76,15 @@ func (p *Producer) SendNewsDelivery(ctx context.Context, newsID uint, userID int
 	if err != nil {
 		p.logger.Error().Err(err).
 			Uint("news_id", newsID).
-			Int64("user_id", userID).
-			Msg("Failed to send news delivery message")
+			Int("users_count", len(userIDs)).
+			Msg("Failed to send batch news delivery message")
 		return fmt.Errorf("failed to send message: %w", err)
 	}
 
 	p.logger.Debug().
 		Uint("news_id", newsID).
-		Int64("user_id", userID).
-		Msg("News delivery message sent")
+		Int("users_count", len(userIDs)).
+		Msg("Batch news delivery message sent")
 
 	return nil
 }

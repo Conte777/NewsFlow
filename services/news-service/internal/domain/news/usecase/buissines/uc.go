@@ -91,7 +91,7 @@ func (u *UseCase) ProcessNewsReceived(ctx context.Context, req *dto.ProcessNewsR
 		Uint("news_id", news.ID).
 		Msg("News created successfully")
 
-	subscribers, err := u.subscriptionSvc.GetChannelSubscribers(ctx, req.ChannelID)
+	subscribers, err := u.getChannelSubscribersWithFallback(ctx, req.ChannelID)
 	if err != nil {
 		u.logger.Error().Err(err).
 			Str("channel_id", req.ChannelID).
@@ -113,7 +113,7 @@ func (u *UseCase) ProcessNewsReceived(ctx context.Context, req *dto.ProcessNewsR
 	return &dto.ProcessNewsResponse{NewsID: news.ID}, nil
 }
 
-// DeliverNewsToUsers delivers news to subscribed users
+// DeliverNewsToUsers delivers news to subscribed users (batch format)
 func (u *UseCase) DeliverNewsToUsers(ctx context.Context, newsID uint, userIDs []int64) error {
 	news, err := u.newsRepo.GetByID(ctx, newsID)
 	if err != nil {
@@ -131,6 +131,7 @@ func (u *UseCase) DeliverNewsToUsers(ctx context.Context, newsID uint, userIDs [
 		}
 	}
 
+	pendingUserIDs := make([]int64, 0, len(userIDs))
 	for _, userID := range userIDs {
 		delivered, err := u.deliveredRepo.IsDelivered(ctx, newsID, userID)
 		if err != nil {
@@ -149,19 +150,28 @@ func (u *UseCase) DeliverNewsToUsers(ctx context.Context, newsID uint, userIDs [
 			continue
 		}
 
-		if err := u.kafkaProducer.SendNewsDelivery(ctx, newsID, userID, news.ChannelID, news.ChannelName, news.Content, mediaURLs); err != nil {
-			u.logger.Error().Err(err).
-				Uint("news_id", newsID).
-				Int64("user_id", userID).
-				Msg("Failed to send news delivery event")
-			continue
-		}
+		pendingUserIDs = append(pendingUserIDs, userID)
+	}
 
+	if len(pendingUserIDs) == 0 {
 		u.logger.Debug().
 			Uint("news_id", newsID).
-			Int64("user_id", userID).
-			Msg("News delivery event sent")
+			Msg("No pending users for news delivery")
+		return nil
 	}
+
+	if err := u.kafkaProducer.SendNewsDelivery(ctx, newsID, pendingUserIDs, news.ChannelID, news.ChannelName, news.Content, mediaURLs); err != nil {
+		u.logger.Error().Err(err).
+			Uint("news_id", newsID).
+			Int("pending_users_count", len(pendingUserIDs)).
+			Msg("Failed to send batch news delivery event")
+		return err
+	}
+
+	u.logger.Info().
+		Uint("news_id", newsID).
+		Int("pending_users_count", len(pendingUserIDs)).
+		Msg("Batch news delivery event sent")
 
 	return nil
 }
@@ -231,4 +241,31 @@ func (u *UseCase) GetUserDeliveredNews(ctx context.Context, req *dto.GetUserNews
 	}
 
 	return &dto.GetUserNewsResponse{News: newsItems}, nil
+}
+
+// getChannelSubscribersWithFallback tries gRPC first, falls back to delivered_news
+func (u *UseCase) getChannelSubscribersWithFallback(ctx context.Context, channelID string) ([]int64, error) {
+	subscribers, err := u.subscriptionSvc.GetChannelSubscribers(ctx, channelID)
+	if err == nil {
+		return subscribers, nil
+	}
+
+	u.logger.Warn().Err(err).
+		Str("channel_id", channelID).
+		Msg("Subscription service unavailable, using fallback from delivered_news")
+
+	fallbackUsers, fallbackErr := u.deliveredRepo.GetUsersByChannelID(ctx, channelID)
+	if fallbackErr != nil {
+		u.logger.Error().Err(fallbackErr).
+			Str("channel_id", channelID).
+			Msg("Fallback to delivered_news also failed")
+		return nil, fmt.Errorf("subscription service unavailable and fallback failed: %w", err)
+	}
+
+	u.logger.Info().
+		Str("channel_id", channelID).
+		Int("fallback_users_count", len(fallbackUsers)).
+		Msg("Using fallback subscribers from delivered_news")
+
+	return fallbackUsers, nil
 }

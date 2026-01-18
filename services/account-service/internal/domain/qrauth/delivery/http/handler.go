@@ -141,7 +141,6 @@ func (h *QRAuthHandler) Cancel(ctx *fasthttp.RequestCtx) {
 	ctx.SetStatusCode(fasthttp.StatusNoContent)
 }
 
-// handleError maps domain errors to HTTP status codes
 func (h *QRAuthHandler) handleError(ctx *fasthttp.RequestCtx, err error) {
 	switch {
 	case errors.Is(err, qrerrors.ErrSessionNotFound):

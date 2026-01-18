@@ -31,12 +31,15 @@ type DeliveredNewsRepository interface {
 
 	// GetUserDeliveredNews retrieves all news delivered to user
 	GetUserDeliveredNews(ctx context.Context, userID int64, limit int) ([]entities.DeliveredNews, error)
+
+	// GetUsersByChannelID returns distinct users who received news from channel (for fallback)
+	GetUsersByChannelID(ctx context.Context, channelID string) ([]int64, error)
 }
 
 // KafkaProducer defines interface for sending messages to Kafka
 type KafkaProducer interface {
-	// SendNewsDelivery sends news delivery event to bot service
-	SendNewsDelivery(ctx context.Context, newsID uint, userID int64, channelID, channelName, content string, mediaURLs []string) error
+	// SendNewsDelivery sends batch news delivery event to bot service
+	SendNewsDelivery(ctx context.Context, newsID uint, userIDs []int64, channelID, channelName, content string, mediaURLs []string) error
 
 	// Close closes the producer
 	Close() error

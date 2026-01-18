@@ -36,10 +36,10 @@ type SubscriptionDeletedEvent struct {
 	DeletedAt string `json:"deleted_at"`
 }
 
-// NewsDeliveryEvent represents a Kafka event for news delivery
+// NewsDeliveryEvent represents a Kafka event for news delivery (batch format)
 type NewsDeliveryEvent struct {
 	NewsID      uint     `json:"news_id"`
-	UserID      int64    `json:"user_id"`
+	UserIDs     []int64  `json:"user_ids"`
 	ChannelID   string   `json:"channel_id"`
 	ChannelName string   `json:"channel_name"`
 	Content     string   `json:"content"`

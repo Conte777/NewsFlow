@@ -26,7 +26,7 @@ func NewHandlers(uc *buissines.UseCase, logger zerolog.Logger) *Handlers {
 	}
 }
 
-// HandleNewsDelivery handles news delivery events from Kafka
+// HandleNewsDelivery handles news delivery events from Kafka (batch format)
 func (h *Handlers) HandleNewsDelivery(ctx context.Context, data []byte) error {
 	var event dto.NewsDeliveryEvent
 	if err := json.Unmarshal(data, &event); err != nil {
@@ -36,25 +36,45 @@ func (h *Handlers) HandleNewsDelivery(ctx context.Context, data []byte) error {
 
 	h.logger.Info().
 		Uint("news_id", event.NewsID).
-		Int64("user_id", event.UserID).
+		Int("users_count", len(event.UserIDs)).
 		Str("channel_id", event.ChannelID).
-		Msg("Processing news delivery event")
+		Msg("Processing batch news delivery event")
 
-	news := &entities.NewsMessage{
-		ID:          event.NewsID,
-		UserID:      event.UserID,
-		ChannelID:   event.ChannelID,
-		ChannelName: event.ChannelName,
-		Content:     event.Content,
-		MediaURLs:   event.MediaURLs,
-		Timestamp:   event.Timestamp,
+	var lastErr error
+	successCount := 0
+
+	for _, userID := range event.UserIDs {
+		news := &entities.NewsMessage{
+			ID:          event.NewsID,
+			UserID:      userID,
+			ChannelID:   event.ChannelID,
+			ChannelName: event.ChannelName,
+			Content:     event.Content,
+			MediaURLs:   event.MediaURLs,
+			Timestamp:   event.Timestamp,
+		}
+
+		if err := h.uc.SendNews(ctx, news); err != nil {
+			h.logger.Error().Err(err).
+				Uint("news_id", event.NewsID).
+				Int64("user_id", userID).
+				Msg("Failed to send news to user")
+			lastErr = err
+			continue
+		}
+
+		successCount++
+		h.logger.Debug().
+			Uint("news_id", event.NewsID).
+			Int64("user_id", userID).
+			Msg("News delivered to user")
 	}
 
-	if err := h.uc.SendNews(ctx, news); err != nil {
-		h.logger.Error().Err(err).Uint("news_id", event.NewsID).Msg("Failed to send news to user")
-		return err
-	}
+	h.logger.Info().
+		Uint("news_id", event.NewsID).
+		Int("success_count", successCount).
+		Int("total_count", len(event.UserIDs)).
+		Msg("Batch news delivery completed")
 
-	h.logger.Info().Uint("news_id", event.NewsID).Int64("user_id", event.UserID).Msg("News delivered successfully")
-	return nil
+	return lastErr
 }
