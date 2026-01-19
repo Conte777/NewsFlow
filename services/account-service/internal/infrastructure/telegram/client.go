@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -667,6 +668,9 @@ func (c *MTProtoClient) GetChannelMessages(ctx context.Context, channelID string
 	}
 
 	newsItems := c.processMessagesSlice(messageSlice, channelID, channelName, offset, limit)
+
+	// Reverse to chronological order (oldest first) - Telegram API returns newest first
+	slices.Reverse(newsItems)
 
 	c.logger.Debug().
 		Str("channel_id", channelID).
