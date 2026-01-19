@@ -33,6 +33,8 @@ type DatabaseConfig struct {
 type KafkaConfig struct {
 	Brokers           []string
 	GroupID           string
+	GroupIDDeleted    string
+	GroupIDEdited     string
 	TopicNewsReceived string
 }
 
@@ -97,6 +99,8 @@ func Load() (*Config, error) {
 		Kafka: KafkaConfig{
 			Brokers:           strings.Split(getEnv("KAFKA_BROKERS", "localhost:9093"), ","),
 			GroupID:           getEnv("KAFKA_GROUP_ID", "news-service-group"),
+			GroupIDDeleted:    getEnv("KAFKA_GROUP_ID_DELETED", "news-service-deleted-group"),
+			GroupIDEdited:     getEnv("KAFKA_GROUP_ID_EDITED", "news-service-edited-group"),
 			TopicNewsReceived: getEnv("KAFKA_TOPIC_NEWS_RECEIVED", "news.received"),
 		},
 		Logging: LoggingConfig{

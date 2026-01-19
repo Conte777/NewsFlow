@@ -13,7 +13,6 @@ import (
 
 var Module = fx.Module("kafka",
 	fx.Provide(NewProducerFx),
-	fx.Provide(NewConsumer),
 	fx.Invoke(registerConsumerLifecycle),
 	fx.Invoke(registerDeletedConsumerLifecycle),
 	fx.Invoke(registerEditedConsumerLifecycle),

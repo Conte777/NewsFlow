@@ -25,7 +25,7 @@ func NewNewsDeletedConsumer(cfg *config.KafkaConfig, handlers *kafkaHandlers.Han
 	reader := kafka.NewReader(kafka.ReaderConfig{
 		Brokers:     cfg.Brokers,
 		Topic:       "news.deleted",
-		GroupID:     cfg.GroupID,
+		GroupID:     cfg.GroupIDDeleted,
 		MinBytes:    minBytes,
 		MaxBytes:    maxBytes,
 		MaxWait:     500 * time.Millisecond,
@@ -35,7 +35,7 @@ func NewNewsDeletedConsumer(cfg *config.KafkaConfig, handlers *kafkaHandlers.Han
 	logger.Info().
 		Strs("brokers", cfg.Brokers).
 		Str("topic", "news.deleted").
-		Str("group_id", cfg.GroupID).
+		Str("group_id", cfg.GroupIDDeleted).
 		Msg("News deleted consumer initialized")
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -123,7 +123,7 @@ func NewNewsEditedConsumer(cfg *config.KafkaConfig, handlers *kafkaHandlers.Hand
 	reader := kafka.NewReader(kafka.ReaderConfig{
 		Brokers:     cfg.Brokers,
 		Topic:       "news.edited",
-		GroupID:     cfg.GroupID,
+		GroupID:     cfg.GroupIDEdited,
 		MinBytes:    minBytes,
 		MaxBytes:    maxBytes,
 		MaxWait:     500 * time.Millisecond,
@@ -133,7 +133,7 @@ func NewNewsEditedConsumer(cfg *config.KafkaConfig, handlers *kafkaHandlers.Hand
 	logger.Info().
 		Strs("brokers", cfg.Brokers).
 		Str("topic", "news.edited").
-		Str("group_id", cfg.GroupID).
+		Str("group_id", cfg.GroupIDEdited).
 		Msg("News edited consumer initialized")
 
 	ctx, cancel := context.WithCancel(context.Background())
