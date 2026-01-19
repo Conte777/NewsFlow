@@ -17,10 +17,13 @@ import (
 
 // ConfirmationConsumer consumes confirmation events from Kafka (Saga workflow)
 type ConfirmationConsumer struct {
-	reader *kafka.Reader
-	sender deps.TelegramSender
-	logger zerolog.Logger
-	done   chan struct{}
+	subReader   *kafka.Reader
+	unsubReader *kafka.Reader
+	sender      deps.TelegramSender
+	logger      zerolog.Logger
+	done        chan struct{}
+	ctx         context.Context
+	cancel      context.CancelFunc
 }
 
 // NewConfirmationConsumer creates new Kafka consumer for confirmation events
@@ -30,69 +33,88 @@ func NewConfirmationConsumer(cfg *config.KafkaConfig, sender deps.TelegramSender
 		brokers = []string{"localhost:9093"}
 	}
 
-	topics := []string{
-		cfg.TopicSubscriptionConfirmed,
-		cfg.TopicUnsubscriptionConfirmed,
-	}
-
-	reader := kafka.NewReader(kafka.ReaderConfig{
+	subReader := kafka.NewReader(kafka.ReaderConfig{
 		Brokers:     brokers,
-		GroupID:     cfg.GroupID + "-confirmation",
-		GroupTopics: topics,
-		MinBytes:    1,    // 1 byte - return immediately when message available
-		MaxBytes:    10e6, // 10MB
+		GroupID:     cfg.GroupID + "-sub-confirmation",
+		Topic:       cfg.TopicSubscriptionConfirmed,
+		MinBytes:    1,
+		MaxBytes:    10e6,
+		StartOffset: kafka.FirstOffset,
+	})
+
+	unsubReader := kafka.NewReader(kafka.ReaderConfig{
+		Brokers:     brokers,
+		GroupID:     cfg.GroupID + "-unsub-confirmation",
+		Topic:       cfg.TopicUnsubscriptionConfirmed,
+		MinBytes:    1,
+		MaxBytes:    10e6,
 		StartOffset: kafka.FirstOffset,
 	})
 
 	logger.Info().
 		Strs("brokers", brokers).
-		Str("group_id", cfg.GroupID+"-confirmation").
-		Strs("topics", topics).
+		Str("sub_topic", cfg.TopicSubscriptionConfirmed).
+		Str("unsub_topic", cfg.TopicUnsubscriptionConfirmed).
 		Msg("Kafka confirmation consumer initialized")
 
+	ctx, cancel := context.WithCancel(context.Background())
+
 	return &ConfirmationConsumer{
-		reader: reader,
-		sender: sender,
-		logger: logger,
-		done:   make(chan struct{}),
+		subReader:   subReader,
+		unsubReader: unsubReader,
+		sender:      sender,
+		logger:      logger,
+		done:        make(chan struct{}),
+		ctx:         ctx,
+		cancel:      cancel,
 	}
 }
 
 // Start starts consuming confirmation messages from Kafka
-func (c *ConfirmationConsumer) Start(ctx context.Context) {
+func (c *ConfirmationConsumer) Start() {
 	c.logger.Info().Msg("Starting Kafka confirmation consumer...")
 
-	go func() {
-		for {
-			select {
-			case <-c.done:
-				c.logger.Info().Msg("Kafka confirmation consumer stopped by done signal")
-				return
-			case <-ctx.Done():
-				c.logger.Info().Msg("Kafka confirmation consumer stopped by context cancellation")
-				return
-			default:
-				msg, err := c.reader.ReadMessage(ctx)
-				if err != nil {
-					if ctx.Err() != nil {
-						return
-					}
-					c.logger.Error().Err(err).Msg("Failed to read confirmation message from Kafka")
-					continue
-				}
+	// Start subscription confirmation reader
+	go c.consumeFromReader(c.subReader, "subscription")
 
-				c.logger.Debug().
-					Str("topic", msg.Topic).
-					Int("partition", msg.Partition).
-					Int64("offset", msg.Offset).
-					Msg("Received confirmation message from Kafka")
+	// Start unsubscription confirmation reader
+	go c.consumeFromReader(c.unsubReader, "unsubscription")
+}
 
-				if err := c.handleConfirmation(ctx, msg.Value); err != nil {
-					c.logger.Error().Err(err).Msg("Failed to handle confirmation event")
+func (c *ConfirmationConsumer) consumeFromReader(reader *kafka.Reader, readerName string) {
+	for {
+		select {
+		case <-c.done:
+			c.logger.Info().Str("reader", readerName).Msg("Kafka confirmation consumer stopped by done signal")
+			return
+		case <-c.ctx.Done():
+			c.logger.Info().Str("reader", readerName).Msg("Kafka confirmation consumer stopped by context cancellation")
+			return
+		default:
+			msg, err := reader.FetchMessage(c.ctx)
+			if err != nil {
+				if c.ctx.Err() != nil {
+					return
 				}
+				c.logger.Error().Err(err).Str("reader", readerName).Msg("Failed to fetch confirmation message from Kafka")
+				continue
+			}
+
+			c.logger.Debug().
+				Str("topic", msg.Topic).
+				Int("partition", msg.Partition).
+				Int64("offset", msg.Offset).
+				Msg("Received confirmation message from Kafka")
+
+			if err := c.handleConfirmation(c.ctx, msg.Value); err != nil {
+				c.logger.Error().Err(err).Msg("Failed to handle confirmation event")
+			}
+
+			if err := reader.CommitMessages(c.ctx, msg); err != nil {
+				c.logger.Error().Err(err).Msg("Failed to commit confirmation message")
 			}
 		}
-	}()
+	}
 }
 
 func (c *ConfirmationConsumer) handleConfirmation(ctx context.Context, data []byte) error {
@@ -139,10 +161,16 @@ func (c *ConfirmationConsumer) handleConfirmation(ctx context.Context, data []by
 // Stop stops the consumer gracefully
 func (c *ConfirmationConsumer) Stop() error {
 	c.logger.Info().Msg("Stopping Kafka confirmation consumer...")
+	c.cancel()
 	close(c.done)
 
-	if err := c.reader.Close(); err != nil {
-		c.logger.Error().Err(err).Msg("Failed to close Kafka confirmation reader")
+	if err := c.subReader.Close(); err != nil {
+		c.logger.Error().Err(err).Msg("Failed to close Kafka subscription confirmation reader")
+		return err
+	}
+
+	if err := c.unsubReader.Close(); err != nil {
+		c.logger.Error().Err(err).Msg("Failed to close Kafka unsubscription confirmation reader")
 		return err
 	}
 

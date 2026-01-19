@@ -21,6 +21,8 @@ type RejectionConsumer struct {
 	sender deps.TelegramSender
 	logger zerolog.Logger
 	done   chan struct{}
+	ctx    context.Context
+	cancel context.CancelFunc
 }
 
 // NewRejectionConsumer creates new Kafka consumer for rejection events
@@ -50,16 +52,20 @@ func NewRejectionConsumer(cfg *config.KafkaConfig, sender deps.TelegramSender, l
 		Strs("topics", topics).
 		Msg("Kafka rejection consumer initialized")
 
+	ctx, cancel := context.WithCancel(context.Background())
+
 	return &RejectionConsumer{
 		reader: reader,
 		sender: sender,
 		logger: logger,
 		done:   make(chan struct{}),
+		ctx:    ctx,
+		cancel: cancel,
 	}
 }
 
 // Start starts consuming rejection messages from Kafka
-func (c *RejectionConsumer) Start(ctx context.Context) {
+func (c *RejectionConsumer) Start() {
 	c.logger.Info().Msg("Starting Kafka rejection consumer...")
 
 	go func() {
@@ -68,16 +74,16 @@ func (c *RejectionConsumer) Start(ctx context.Context) {
 			case <-c.done:
 				c.logger.Info().Msg("Kafka rejection consumer stopped by done signal")
 				return
-			case <-ctx.Done():
+			case <-c.ctx.Done():
 				c.logger.Info().Msg("Kafka rejection consumer stopped by context cancellation")
 				return
 			default:
-				msg, err := c.reader.ReadMessage(ctx)
+				msg, err := c.reader.FetchMessage(c.ctx)
 				if err != nil {
-					if ctx.Err() != nil {
+					if c.ctx.Err() != nil {
 						return
 					}
-					c.logger.Error().Err(err).Msg("Failed to read rejection message from Kafka")
+					c.logger.Error().Err(err).Msg("Failed to fetch rejection message from Kafka")
 					continue
 				}
 
@@ -87,8 +93,12 @@ func (c *RejectionConsumer) Start(ctx context.Context) {
 					Int64("offset", msg.Offset).
 					Msg("Received rejection message from Kafka")
 
-				if err := c.handleRejection(ctx, msg.Value); err != nil {
+				if err := c.handleRejection(c.ctx, msg.Value); err != nil {
 					c.logger.Error().Err(err).Msg("Failed to handle rejection event")
+				}
+
+				if err := c.reader.CommitMessages(c.ctx, msg); err != nil {
+					c.logger.Error().Err(err).Msg("Failed to commit rejection message")
 				}
 			}
 		}
@@ -145,6 +155,7 @@ func (c *RejectionConsumer) handleRejection(ctx context.Context, data []byte) er
 // Stop stops the consumer gracefully
 func (c *RejectionConsumer) Stop() error {
 	c.logger.Info().Msg("Stopping Kafka rejection consumer...")
+	c.cancel()
 	close(c.done)
 
 	if err := c.reader.Close(); err != nil {

@@ -45,11 +45,11 @@ func registerConsumerLifecycle(
 	consumer := NewConsumer(cfg, handlers, logger.With().Str("component", "kafka-consumer").Logger())
 
 	lc.Append(fx.Hook{
-		OnStart: func(ctx context.Context) error {
-			consumer.Start(ctx)
+		OnStart: func(_ context.Context) error {
+			consumer.Start()
 			return nil
 		},
-		OnStop: func(ctx context.Context) error {
+		OnStop: func(_ context.Context) error {
 			return consumer.Stop()
 		},
 	})

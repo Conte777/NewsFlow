@@ -81,12 +81,12 @@ func wireAndRegister(
 	)
 
 	lc.Append(fx.Hook{
-		OnStart: func(ctx context.Context) error {
-			rejectionConsumer.Start(ctx)
-			confirmationConsumer.Start(ctx)
+		OnStart: func(_ context.Context) error {
+			rejectionConsumer.Start()
+			confirmationConsumer.Start()
 			return nil
 		},
-		OnStop: func(ctx context.Context) error {
+		OnStop: func(_ context.Context) error {
 			if err := rejectionConsumer.Stop(); err != nil {
 				return err
 			}

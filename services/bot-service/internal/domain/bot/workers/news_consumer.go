@@ -17,6 +17,8 @@ type NewsConsumer struct {
 	handlers *kafkaHandlers.Handlers
 	logger   zerolog.Logger
 	done     chan struct{}
+	ctx      context.Context
+	cancel   context.CancelFunc
 }
 
 // NewNewsConsumer creates new Kafka consumer for news delivery
@@ -40,16 +42,20 @@ func NewNewsConsumer(cfg *config.KafkaConfig, handlers *kafkaHandlers.Handlers, 
 		Str("topic", "news.deliver").
 		Msg("Kafka news consumer initialized")
 
+	ctx, cancel := context.WithCancel(context.Background())
+
 	return &NewsConsumer{
 		reader:   reader,
 		handlers: handlers,
 		logger:   logger,
 		done:     make(chan struct{}),
+		ctx:      ctx,
+		cancel:   cancel,
 	}
 }
 
 // Start starts consuming messages from Kafka
-func (c *NewsConsumer) Start(ctx context.Context) {
+func (c *NewsConsumer) Start() {
 	c.logger.Info().Msg("Starting Kafka news consumer...")
 
 	go func() {
@@ -58,13 +64,13 @@ func (c *NewsConsumer) Start(ctx context.Context) {
 			case <-c.done:
 				c.logger.Info().Msg("Kafka news consumer stopped by done signal")
 				return
-			case <-ctx.Done():
+			case <-c.ctx.Done():
 				c.logger.Info().Msg("Kafka news consumer stopped by context cancellation")
 				return
 			default:
-				msg, err := c.reader.ReadMessage(ctx)
+				msg, err := c.reader.ReadMessage(c.ctx)
 				if err != nil {
-					if ctx.Err() != nil {
+					if c.ctx.Err() != nil {
 						return
 					}
 					c.logger.Error().Err(err).Msg("Failed to read message from Kafka")
@@ -77,7 +83,7 @@ func (c *NewsConsumer) Start(ctx context.Context) {
 					Int64("offset", msg.Offset).
 					Msg("Received message from Kafka")
 
-				if err := c.handlers.HandleNewsDelivery(ctx, msg.Value); err != nil {
+				if err := c.handlers.HandleNewsDelivery(c.ctx, msg.Value); err != nil {
 					c.logger.Error().Err(err).Msg("Failed to handle news delivery")
 				}
 			}
@@ -88,6 +94,7 @@ func (c *NewsConsumer) Start(ctx context.Context) {
 // Stop stops the consumer gracefully
 func (c *NewsConsumer) Stop() error {
 	c.logger.Info().Msg("Stopping Kafka news consumer...")
+	c.cancel()
 	close(c.done)
 
 	if err := c.reader.Close(); err != nil {

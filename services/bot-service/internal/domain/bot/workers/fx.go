@@ -16,25 +16,11 @@ var Module = fx.Module("bot-workers",
 // registerNewsConsumerLifecycle registers news consumer lifecycle hooks
 func registerNewsConsumerLifecycle(lc fx.Lifecycle, consumer *NewsConsumer) {
 	lc.Append(fx.Hook{
-		OnStart: func(ctx context.Context) error {
-			consumer.Start(ctx)
+		OnStart: func(_ context.Context) error {
+			consumer.Start()
 			return nil
 		},
-		OnStop: func(ctx context.Context) error {
-			return consumer.Stop()
-		},
-	})
-}
-
-// registerRejectionConsumerLifecycle registers rejection consumer lifecycle hooks
-// Called from bot/fx.go after TelegramSender is wired
-func registerRejectionConsumerLifecycle(lc fx.Lifecycle, consumer *RejectionConsumer) {
-	lc.Append(fx.Hook{
-		OnStart: func(ctx context.Context) error {
-			consumer.Start(ctx)
-			return nil
-		},
-		OnStop: func(ctx context.Context) error {
+		OnStop: func(_ context.Context) error {
 			return consumer.Stop()
 		},
 	})

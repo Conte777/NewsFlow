@@ -164,6 +164,7 @@ services:
       SERVICE_NAME: news-service
       SERVICE_PORT: "8083"
       SUBSCRIPTION_SERVICE_URL: http://subscription-service:8082
+      SUBSCRIPTION_SERVICE_GRPC_ADDR: subscription-service:50051
       LOG_LEVEL: ${LOG_LEVEL:-debug}
     networks:
       - telegram-news-network
