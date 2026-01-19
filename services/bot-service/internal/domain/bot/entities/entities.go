@@ -31,3 +31,17 @@ type NewsMessage struct {
 	MessageID   int       `json:"messageId" db:"message_id"`
 	Timestamp   int64     `json:"timestamp" db:"timestamp"`
 }
+
+// DeliveredMessage tracks delivered messages to users for delete/edit sync
+type DeliveredMessage struct {
+	ID                uint      `gorm:"primaryKey" db:"id" json:"id"`
+	NewsID            uint      `gorm:"not null;uniqueIndex:idx_news_user" db:"news_id" json:"newsId"`
+	UserID            int64     `gorm:"not null;uniqueIndex:idx_news_user;index" db:"user_id" json:"userId"`
+	TelegramMessageID int       `gorm:"not null" db:"telegram_message_id" json:"telegramMessageId"`
+	CreatedAt         time.Time `gorm:"autoCreateTime" db:"created_at" json:"createdAt"`
+}
+
+// TableName returns the table name for DeliveredMessage
+func (DeliveredMessage) TableName() string {
+	return "delivered_messages"
+}

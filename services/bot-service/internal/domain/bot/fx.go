@@ -7,13 +7,15 @@ import (
 	tgbot "github.com/go-telegram/bot"
 	"github.com/rs/zerolog"
 	"go.uber.org/fx"
+	"gorm.io/gorm"
 
 	"github.com/Conte777/NewsFlow/services/bot-service/config"
 	kafkaDelivery "github.com/Conte777/NewsFlow/services/bot-service/internal/domain/bot/delivery/kafka"
 	telegramDelivery "github.com/Conte777/NewsFlow/services/bot-service/internal/domain/bot/delivery/telegram"
 	"github.com/Conte777/NewsFlow/services/bot-service/internal/domain/bot/deps"
-	kafkaRepo "github.com/Conte777/NewsFlow/services/bot-service/internal/domain/bot/repository/kafka"
 	subscriptionClient "github.com/Conte777/NewsFlow/services/bot-service/internal/domain/bot/repository/grpc_clients/subscription"
+	kafkaRepo "github.com/Conte777/NewsFlow/services/bot-service/internal/domain/bot/repository/kafka"
+	postgresRepo "github.com/Conte777/NewsFlow/services/bot-service/internal/domain/bot/repository/postgres"
 	"github.com/Conte777/NewsFlow/services/bot-service/internal/domain/bot/usecase/buissines"
 	"github.com/Conte777/NewsFlow/services/bot-service/internal/domain/bot/workers"
 	"github.com/Conte777/NewsFlow/services/bot-service/internal/infrastructure/telegram"
@@ -24,6 +26,7 @@ var Module = fx.Module("bot",
 	// Repository
 	fx.Provide(kafkaRepo.NewProducer),
 	fx.Provide(provideSubscriptionRepository),
+	fx.Provide(provideDeliveredMessageRepository),
 
 	// UseCase
 	fx.Provide(buissines.NewUseCase),
@@ -98,6 +101,11 @@ func wireAndRegister(
 // provideSubscriptionRepository creates subscription repository (gRPC client)
 func provideSubscriptionRepository(cfg *config.GRPCConfig, logger zerolog.Logger) (deps.SubscriptionRepository, error) {
 	return subscriptionClient.NewClient(cfg.SubscriptionServiceAddr, logger)
+}
+
+// provideDeliveredMessageRepository creates delivered message repository (PostgreSQL)
+func provideDeliveredMessageRepository(db *gorm.DB) deps.DeliveredMessageRepository {
+	return postgresRepo.NewDeliveredMessageRepository(db)
 }
 
 // RawBotProvider extracts raw tgbot.Bot from infrastructure Bot

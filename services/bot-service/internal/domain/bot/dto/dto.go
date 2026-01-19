@@ -93,3 +93,18 @@ type ConfirmedEvent struct {
 	ChannelID   string `json:"channel_id"`
 	ChannelName string `json:"channel_name"`
 }
+
+// NewsDeleteEvent represents a Kafka event for deleting news from user chats
+type NewsDeleteEvent struct {
+	NewsID  uint    `json:"news_id"`
+	UserIDs []int64 `json:"user_ids"`
+}
+
+// NewsEditEvent represents a Kafka event for editing news in user chats
+type NewsEditEvent struct {
+	NewsID      uint     `json:"news_id"`
+	UserIDs     []int64  `json:"user_ids"`
+	Content     string   `json:"content"`
+	ChannelName string   `json:"channel_name"`
+	MediaURLs   []string `json:"media_urls"`
+}

@@ -78,3 +78,58 @@ func (h *Handlers) HandleNewsDelivery(ctx context.Context, data []byte) error {
 
 	return lastErr
 }
+
+// HandleNewsDelete handles news delete events from Kafka
+func (h *Handlers) HandleNewsDelete(ctx context.Context, data []byte) error {
+	var event dto.NewsDeleteEvent
+	if err := json.Unmarshal(data, &event); err != nil {
+		h.logger.Error().Err(err).Str("data", string(data)).Msg("Failed to unmarshal news delete event")
+		return err
+	}
+
+	h.logger.Info().
+		Uint("news_id", event.NewsID).
+		Int("users_count", len(event.UserIDs)).
+		Msg("Processing news delete event")
+
+	if err := h.uc.DeleteNews(ctx, event.NewsID, event.UserIDs); err != nil {
+		h.logger.Error().Err(err).
+			Uint("news_id", event.NewsID).
+			Msg("Failed to delete news from user chats")
+		return err
+	}
+
+	h.logger.Info().
+		Uint("news_id", event.NewsID).
+		Msg("News delete event processed successfully")
+
+	return nil
+}
+
+// HandleNewsEdit handles news edit events from Kafka
+func (h *Handlers) HandleNewsEdit(ctx context.Context, data []byte) error {
+	var event dto.NewsEditEvent
+	if err := json.Unmarshal(data, &event); err != nil {
+		h.logger.Error().Err(err).Str("data", string(data)).Msg("Failed to unmarshal news edit event")
+		return err
+	}
+
+	h.logger.Info().
+		Uint("news_id", event.NewsID).
+		Int("users_count", len(event.UserIDs)).
+		Str("channel_name", event.ChannelName).
+		Msg("Processing news edit event")
+
+	if err := h.uc.EditNews(ctx, &event); err != nil {
+		h.logger.Error().Err(err).
+			Uint("news_id", event.NewsID).
+			Msg("Failed to edit news in user chats")
+		return err
+	}
+
+	h.logger.Info().
+		Uint("news_id", event.NewsID).
+		Msg("News edit event processed successfully")
+
+	return nil
+}

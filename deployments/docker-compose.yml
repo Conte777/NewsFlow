@@ -184,10 +184,19 @@ services:
     container_name: telegram-news-bot-service
     depends_on:
       - kafka
+      - postgres
       - subscription-service
     env_file:
       - ../services/bot-service/.env  # TELEGRAM_BOT_TOKEN
     environment:
+      # Database Configuration
+      DATABASE_HOST: postgres
+      DATABASE_PORT: "5432"
+      DATABASE_USER: bot_user
+      DATABASE_PASSWORD: bot_pass
+      DATABASE_NAME: bot_db
+      DATABASE_SSLMODE: disable
+      # Kafka Configuration
       KAFKA_BROKERS: kafka:9092
       KAFKA_GROUP_ID: bot-service-group
       # Saga workflow topics (consumed)

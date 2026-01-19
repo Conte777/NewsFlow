@@ -76,6 +76,7 @@ type Result struct {
 	Telegram *TelegramConfig
 	Kafka    *KafkaConfig
 	GRPC     *GRPCConfig
+	Database *DatabaseConfig
 	Logging  *LoggingConfig
 	Service  *ServiceConfig
 }
@@ -92,6 +93,7 @@ func Out() (Result, error) {
 		Telegram: &cfg.Telegram,
 		Kafka:    &cfg.Kafka,
 		GRPC:     &cfg.GRPC,
+		Database: &cfg.Database,
 		Logging:  &cfg.Logging,
 		Service:  &cfg.Service,
 	}, nil
@@ -121,6 +123,14 @@ func Load() (*Config, error) {
 		},
 		GRPC: GRPCConfig{
 			SubscriptionServiceAddr: getEnv("SUBSCRIPTION_SERVICE_GRPC_ADDR", "localhost:50051"),
+		},
+		Database: DatabaseConfig{
+			Host:     getEnv("DATABASE_HOST", "localhost"),
+			Port:     getEnv("DATABASE_PORT", "5432"),
+			User:     getEnv("DATABASE_USER", "postgres"),
+			Password: getEnv("DATABASE_PASSWORD", "postgres"),
+			Name:     getEnv("DATABASE_NAME", "bot_db"),
+			SSLMode:  getEnv("DATABASE_SSLMODE", "disable"),
 		},
 		Logging: LoggingConfig{
 			Level: getEnv("LOG_LEVEL", "info"),

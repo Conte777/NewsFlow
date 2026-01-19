@@ -796,3 +796,246 @@ func (h *Handlers) logCommand(userID int64, command, result string) {
 func (h *Handlers) logError(userID int64, command string, err error) {
 	h.logger.Error().Int64("user_id", userID).Str("command", command).Err(err).Msg("Telegram command failed")
 }
+
+// SendMessageAndGetID sends a text message and returns the telegram message ID
+func (h *Handlers) SendMessageAndGetID(ctx context.Context, userID int64, text string) (int, error) {
+	if text == "" {
+		h.logger.Warn().Int64("user_id", userID).Msg("Attempt to send empty message")
+		return 0, fmt.Errorf("message text cannot be empty")
+	}
+
+	h.logger.Debug().Int64("user_id", userID).Int("text_length", len(text)).Msg("Sending message to user and getting ID")
+
+	// For long messages, split and return last message ID
+	if len(text) > MaxMessageLength {
+		return h.sendSplitMessageAndGetID(ctx, userID, text)
+	}
+
+	return h.sendSingleMessageAndGetID(ctx, userID, text)
+}
+
+func (h *Handlers) sendSingleMessageAndGetID(ctx context.Context, userID int64, text string) (int, error) {
+	msgCtx, cancel := context.WithTimeout(ctx, RequestTimeout)
+	defer cancel()
+
+	msg, err := h.bot.SendMessage(msgCtx, &tgbot.SendMessageParams{
+		ChatID:    userID,
+		Text:      text,
+		ParseMode: models.ParseModeHTML,
+	})
+
+	if err != nil {
+		handledErr := h.handleSendMessageError(userID, err)
+		h.logMessageSend(userID, len(text), false, handledErr)
+		return 0, handledErr
+	}
+
+	h.logMessageSend(userID, len(text), true, nil)
+	return msg.ID, nil
+}
+
+func (h *Handlers) sendSplitMessageAndGetID(ctx context.Context, userID int64, text string) (int, error) {
+	h.logger.Info().Int64("user_id", userID).Int("total_length", len(text)).Msg("Splitting long message into parts")
+
+	parts := h.splitMessage(text)
+	totalParts := len(parts)
+	var lastMessageID int
+
+	for i, part := range parts {
+		partNumber := i + 1
+
+		if totalParts > 1 {
+			part = fmt.Sprintf("<i>(Часть %d/%d)</i>\n\n%s", partNumber, totalParts, part)
+		}
+
+		msgID, err := h.sendSingleMessageAndGetID(ctx, userID, part)
+		if err != nil {
+			h.logger.Error().Int64("user_id", userID).Int("part", partNumber).Int("total_parts", totalParts).Err(err).Msg("Failed to send message part")
+			if lastMessageID == 0 {
+				return 0, err
+			}
+			return lastMessageID, nil
+		}
+
+		lastMessageID = msgID
+
+		if partNumber < totalParts {
+			select {
+			case <-ctx.Done():
+				return lastMessageID, ctx.Err()
+			case <-time.After(MessageSplitTimeout):
+			}
+		}
+	}
+
+	h.logger.Info().Int64("user_id", userID).Int("total_parts", totalParts).Int("last_message_id", lastMessageID).Msg("Finished sending split message")
+	return lastMessageID, nil
+}
+
+// SendMessageWithMediaAndGetID sends a message with media and returns the telegram message ID
+func (h *Handlers) SendMessageWithMediaAndGetID(ctx context.Context, userID int64, text string, mediaURLs []string) (int, error) {
+	if len(mediaURLs) == 0 {
+		return h.SendMessageAndGetID(ctx, userID, text)
+	}
+
+	h.logger.Info().Int64("user_id", userID).Int("media_count", len(mediaURLs)).Msg("Sending message with media and getting ID")
+
+	mediaInfos, err := h.validateAndClassifyMedia(mediaURLs)
+	if err != nil {
+		return 0, fmt.Errorf("media validation failed: %w", err)
+	}
+
+	if len(mediaInfos) == 1 {
+		return h.sendSingleMediaAndGetID(ctx, userID, text, mediaInfos[0])
+	}
+
+	// For multiple media, send first one with caption and return its ID
+	msgID, err := h.sendSingleMediaAndGetID(ctx, userID, text, mediaInfos[0])
+	if err != nil {
+		return 0, err
+	}
+
+	// Send remaining media without caption
+	for i := 1; i < len(mediaInfos); i++ {
+		if _, sendErr := h.sendSingleMediaAndGetID(ctx, userID, "", mediaInfos[i]); sendErr != nil {
+			h.logger.Error().Int64("user_id", userID).Int("media_index", i).Err(sendErr).Msg("Failed to send additional media")
+		}
+
+		if i < len(mediaInfos)-1 {
+			select {
+			case <-ctx.Done():
+				return msgID, ctx.Err()
+			case <-time.After(MessageSplitTimeout):
+			}
+		}
+	}
+
+	return msgID, nil
+}
+
+func (h *Handlers) sendSingleMediaAndGetID(ctx context.Context, userID int64, text string, mediaInfo MediaInfo) (int, error) {
+	h.logger.Debug().Int64("user_id", userID).Str("media_type", string(mediaInfo.Type)).Str("url", mediaInfo.URL).Msg("Sending single media and getting ID")
+
+	var msg *models.Message
+	var err error
+
+	for attempt := 1; attempt <= MaxRetries; attempt++ {
+		switch mediaInfo.Type {
+		case MediaTypePhoto:
+			msg, err = h.sendPhotoAndGetID(ctx, userID, text, mediaInfo)
+		case MediaTypeVideo:
+			msg, err = h.sendVideoAndGetID(ctx, userID, text, mediaInfo)
+		case MediaTypeDocument:
+			msg, err = h.sendDocumentAndGetID(ctx, userID, text, mediaInfo)
+		default:
+			return 0, fmt.Errorf("unsupported media type: %s", mediaInfo.Type)
+		}
+
+		if err == nil {
+			break
+		}
+
+		h.logger.Warn().Int64("user_id", userID).Int("attempt", attempt).Err(err).Msg("Failed to send media, retrying")
+
+		if attempt < MaxRetries {
+			time.Sleep(RetryDelay * time.Duration(attempt))
+		}
+	}
+
+	if err != nil {
+		h.logMediaSend(userID, 1, false, err)
+		return 0, fmt.Errorf("failed to send media after %d attempts: %w", MaxRetries, err)
+	}
+
+	h.logMediaSend(userID, 1, true, nil)
+	return msg.ID, nil
+}
+
+func (h *Handlers) sendPhotoAndGetID(ctx context.Context, userID int64, text string, mediaInfo MediaInfo) (*models.Message, error) {
+	msgCtx, cancel := context.WithTimeout(ctx, RequestTimeout)
+	defer cancel()
+
+	return h.bot.SendPhoto(msgCtx, &tgbot.SendPhotoParams{
+		ChatID:    userID,
+		Photo:     &models.InputFileString{Data: mediaInfo.URL},
+		Caption:   text,
+		ParseMode: models.ParseModeHTML,
+	})
+}
+
+func (h *Handlers) sendVideoAndGetID(ctx context.Context, userID int64, text string, mediaInfo MediaInfo) (*models.Message, error) {
+	msgCtx, cancel := context.WithTimeout(ctx, RequestTimeout)
+	defer cancel()
+
+	return h.bot.SendVideo(msgCtx, &tgbot.SendVideoParams{
+		ChatID:    userID,
+		Video:     &models.InputFileString{Data: mediaInfo.URL},
+		Caption:   text,
+		ParseMode: models.ParseModeHTML,
+	})
+}
+
+func (h *Handlers) sendDocumentAndGetID(ctx context.Context, userID int64, text string, mediaInfo MediaInfo) (*models.Message, error) {
+	msgCtx, cancel := context.WithTimeout(ctx, RequestTimeout)
+	defer cancel()
+
+	return h.bot.SendDocument(msgCtx, &tgbot.SendDocumentParams{
+		ChatID:    userID,
+		Document:  &models.InputFileString{Data: mediaInfo.URL},
+		Caption:   text,
+		ParseMode: models.ParseModeHTML,
+	})
+}
+
+// DeleteMessage deletes a message from user's chat
+func (h *Handlers) DeleteMessage(ctx context.Context, userID int64, messageID int) error {
+	h.logger.Debug().Int64("user_id", userID).Int("message_id", messageID).Msg("Deleting message")
+
+	msgCtx, cancel := context.WithTimeout(ctx, RequestTimeout)
+	defer cancel()
+
+	_, err := h.bot.DeleteMessage(msgCtx, &tgbot.DeleteMessageParams{
+		ChatID:    userID,
+		MessageID: messageID,
+	})
+
+	if err != nil {
+		h.logger.Error().Int64("user_id", userID).Int("message_id", messageID).Err(err).Msg("Failed to delete message")
+		return fmt.Errorf("failed to delete message: %w", err)
+	}
+
+	h.logger.Info().Int64("user_id", userID).Int("message_id", messageID).Msg("Message deleted successfully")
+	return nil
+}
+
+// EditMessageText edits message text in user's chat
+func (h *Handlers) EditMessageText(ctx context.Context, userID int64, messageID int, text string) error {
+	if text == "" {
+		return fmt.Errorf("message text cannot be empty")
+	}
+
+	h.logger.Debug().Int64("user_id", userID).Int("message_id", messageID).Int("text_length", len(text)).Msg("Editing message text")
+
+	msgCtx, cancel := context.WithTimeout(ctx, RequestTimeout)
+	defer cancel()
+
+	// Truncate text if too long
+	if len(text) > MaxMessageLength {
+		text = text[:MaxMessageLength-3] + "..."
+	}
+
+	_, err := h.bot.EditMessageText(msgCtx, &tgbot.EditMessageTextParams{
+		ChatID:    userID,
+		MessageID: messageID,
+		Text:      text,
+		ParseMode: models.ParseModeHTML,
+	})
+
+	if err != nil {
+		h.logger.Error().Int64("user_id", userID).Int("message_id", messageID).Err(err).Msg("Failed to edit message text")
+		return fmt.Errorf("failed to edit message: %w", err)
+	}
+
+	h.logger.Info().Int64("user_id", userID).Int("message_id", messageID).Msg("Message edited successfully")
+	return nil
+}

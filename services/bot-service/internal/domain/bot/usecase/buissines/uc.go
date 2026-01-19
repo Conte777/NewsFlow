@@ -16,20 +16,27 @@ import (
 
 // UseCase contains business logic for bot operations
 type UseCase struct {
-	producer   deps.SubscriptionEventProducer
-	repository deps.SubscriptionRepository
-	sender     deps.TelegramSender
-	logger     zerolog.Logger
+	producer                   deps.SubscriptionEventProducer
+	repository                 deps.SubscriptionRepository
+	deliveredMessageRepository deps.DeliveredMessageRepository
+	sender                     deps.TelegramSender
+	logger                     zerolog.Logger
 }
 
 // NewUseCase creates a new UseCase instance
 // Note: sender is not passed here to break cyclic dependency
 // Use SetSender after creating TelegramHandlers
-func NewUseCase(producer deps.SubscriptionEventProducer, repository deps.SubscriptionRepository, logger zerolog.Logger) *UseCase {
+func NewUseCase(
+	producer deps.SubscriptionEventProducer,
+	repository deps.SubscriptionRepository,
+	deliveredMessageRepository deps.DeliveredMessageRepository,
+	logger zerolog.Logger,
+) *UseCase {
 	return &UseCase{
-		producer:   producer,
-		repository: repository,
-		logger:     logger,
+		producer:                   producer,
+		repository:                 repository,
+		deliveredMessageRepository: deliveredMessageRepository,
+		logger:                     logger,
 	}
 }
 
@@ -128,7 +135,7 @@ func (uc *UseCase) HandleListSubscriptions(ctx context.Context, userID int64) (*
 	return &dto.SubscriptionListResponse{Subscriptions: items}, nil
 }
 
-// SendNews sends news to user via Telegram
+// SendNews sends news to user via Telegram and saves delivery record
 func (uc *UseCase) SendNews(ctx context.Context, news *entities.NewsMessage) error {
 	if uc.sender == nil {
 		uc.logger.Error().Msg("TelegramSender is not set")
@@ -144,10 +151,165 @@ func (uc *UseCase) SendNews(ctx context.Context, news *entities.NewsMessage) err
 	// Format message
 	message := fmt.Sprintf("📰 <b>%s</b>\n\n%s", news.ChannelName, news.Content)
 
-	// Send with or without media
+	// Send with or without media and get telegram message ID
+	var telegramMsgID int
+	var err error
+
 	if len(news.MediaURLs) > 0 {
-		return uc.sender.SendMessageWithMedia(ctx, news.UserID, message, news.MediaURLs)
+		telegramMsgID, err = uc.sender.SendMessageWithMediaAndGetID(ctx, news.UserID, message, news.MediaURLs)
+	} else {
+		telegramMsgID, err = uc.sender.SendMessageAndGetID(ctx, news.UserID, message)
 	}
 
-	return uc.sender.SendMessage(ctx, news.UserID, message)
+	if err != nil {
+		uc.logger.Error().Err(err).
+			Uint("news_id", news.ID).
+			Int64("user_id", news.UserID).
+			Msg("Failed to send news to user")
+		return err
+	}
+
+	// Save delivery record for delete/edit sync
+	if uc.deliveredMessageRepository != nil {
+		deliveredMsg := &entities.DeliveredMessage{
+			NewsID:            news.ID,
+			UserID:            news.UserID,
+			TelegramMessageID: telegramMsgID,
+		}
+
+		if saveErr := uc.deliveredMessageRepository.Save(ctx, deliveredMsg); saveErr != nil {
+			uc.logger.Error().Err(saveErr).
+				Uint("news_id", news.ID).
+				Int64("user_id", news.UserID).
+				Int("telegram_message_id", telegramMsgID).
+				Msg("Failed to save delivered message record")
+			// Don't fail the delivery, just log the error
+		} else {
+			uc.logger.Debug().
+				Uint("news_id", news.ID).
+				Int64("user_id", news.UserID).
+				Int("telegram_message_id", telegramMsgID).
+				Msg("Delivered message record saved")
+		}
+	}
+
+	return nil
+}
+
+// DeleteNews deletes news messages from user chats
+func (uc *UseCase) DeleteNews(ctx context.Context, newsID uint, userIDs []int64) error {
+	if uc.sender == nil {
+		uc.logger.Error().Msg("TelegramSender is not set")
+		return boterrors.ErrMessageDeliveryFailed
+	}
+
+	uc.logger.Info().
+		Uint("news_id", newsID).
+		Int("users_count", len(userIDs)).
+		Msg("Deleting news from user chats")
+
+	var lastErr error
+	successCount := 0
+
+	for _, userID := range userIDs {
+		// Get delivered message record
+		deliveredMsg, err := uc.deliveredMessageRepository.GetByNewsIDAndUserID(ctx, newsID, userID)
+		if err != nil {
+			uc.logger.Warn().Err(err).
+				Uint("news_id", newsID).
+				Int64("user_id", userID).
+				Msg("Failed to get delivered message record, skipping")
+			continue
+		}
+
+		// Delete message from Telegram
+		if err := uc.sender.DeleteMessage(ctx, userID, deliveredMsg.TelegramMessageID); err != nil {
+			uc.logger.Error().Err(err).
+				Uint("news_id", newsID).
+				Int64("user_id", userID).
+				Int("telegram_message_id", deliveredMsg.TelegramMessageID).
+				Msg("Failed to delete message from Telegram")
+			lastErr = err
+			continue
+		}
+
+		// Delete delivery record
+		if err := uc.deliveredMessageRepository.Delete(ctx, newsID, userID); err != nil {
+			uc.logger.Warn().Err(err).
+				Uint("news_id", newsID).
+				Int64("user_id", userID).
+				Msg("Failed to delete delivery record")
+		}
+
+		successCount++
+		uc.logger.Debug().
+			Uint("news_id", newsID).
+			Int64("user_id", userID).
+			Msg("News deleted from user chat")
+	}
+
+	uc.logger.Info().
+		Uint("news_id", newsID).
+		Int("success_count", successCount).
+		Int("total_count", len(userIDs)).
+		Msg("News delete operation completed")
+
+	return lastErr
+}
+
+// EditNews edits news messages in user chats
+func (uc *UseCase) EditNews(ctx context.Context, event *dto.NewsEditEvent) error {
+	if uc.sender == nil {
+		uc.logger.Error().Msg("TelegramSender is not set")
+		return boterrors.ErrMessageDeliveryFailed
+	}
+
+	uc.logger.Info().
+		Uint("news_id", event.NewsID).
+		Int("users_count", len(event.UserIDs)).
+		Str("channel_name", event.ChannelName).
+		Msg("Editing news in user chats")
+
+	// Format updated message
+	message := fmt.Sprintf("📰 <b>%s</b>\n\n%s\n\n<i>(изменено)</i>", event.ChannelName, event.Content)
+
+	var lastErr error
+	successCount := 0
+
+	for _, userID := range event.UserIDs {
+		// Get delivered message record
+		deliveredMsg, err := uc.deliveredMessageRepository.GetByNewsIDAndUserID(ctx, event.NewsID, userID)
+		if err != nil {
+			uc.logger.Warn().Err(err).
+				Uint("news_id", event.NewsID).
+				Int64("user_id", userID).
+				Msg("Failed to get delivered message record, skipping")
+			continue
+		}
+
+		// Edit message in Telegram
+		if err := uc.sender.EditMessageText(ctx, userID, deliveredMsg.TelegramMessageID, message); err != nil {
+			uc.logger.Error().Err(err).
+				Uint("news_id", event.NewsID).
+				Int64("user_id", userID).
+				Int("telegram_message_id", deliveredMsg.TelegramMessageID).
+				Msg("Failed to edit message in Telegram")
+			lastErr = err
+			continue
+		}
+
+		successCount++
+		uc.logger.Debug().
+			Uint("news_id", event.NewsID).
+			Int64("user_id", userID).
+			Msg("News edited in user chat")
+	}
+
+	uc.logger.Info().
+		Uint("news_id", event.NewsID).
+		Int("success_count", successCount).
+		Int("total_count", len(event.UserIDs)).
+		Msg("News edit operation completed")
+
+	return lastErr
 }
