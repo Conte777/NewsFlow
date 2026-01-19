@@ -78,6 +78,69 @@ func (r *newsRepository) Exists(ctx context.Context, channelID string, messageID
 	return count > 0, nil
 }
 
+// Update updates an existing news item
+func (r *newsRepository) Update(ctx context.Context, news *entities.News) error {
+	result := r.db.WithContext(ctx).Save(news)
+	if result.Error != nil {
+		return domainerrors.ErrDatabaseOperation
+	}
+	if result.RowsAffected == 0 {
+		return domainerrors.ErrNewsNotFound
+	}
+	return nil
+}
+
+// SoftDelete performs soft delete on a single news item
+func (r *newsRepository) SoftDelete(ctx context.Context, channelID string, messageID int) error {
+	result := r.db.WithContext(ctx).
+		Where("channel_id = ? AND message_id = ?", channelID, messageID).
+		Delete(&entities.News{})
+
+	if result.Error != nil {
+		return domainerrors.ErrDatabaseOperation
+	}
+	return nil
+}
+
+// SoftDeleteBatch performs soft delete on multiple news items, returns IDs of deleted news
+func (r *newsRepository) SoftDeleteBatch(ctx context.Context, channelID string, messageIDs []int) ([]uint, error) {
+	if len(messageIDs) == 0 {
+		return nil, nil
+	}
+
+	// First, get the IDs of news items that will be deleted
+	var newsItems []entities.News
+	result := r.db.WithContext(ctx).
+		Select("id").
+		Where("channel_id = ? AND message_id IN ?", channelID, messageIDs).
+		Find(&newsItems)
+
+	if result.Error != nil {
+		return nil, domainerrors.ErrDatabaseOperation
+	}
+
+	if len(newsItems) == 0 {
+		return nil, nil
+	}
+
+	// Collect IDs
+	ids := make([]uint, 0, len(newsItems))
+	for _, n := range newsItems {
+		ids = append(ids, n.ID)
+	}
+
+	// Perform soft delete
+	result = r.db.WithContext(ctx).
+		Where("channel_id = ? AND message_id IN ?", channelID, messageIDs).
+		Delete(&entities.News{})
+
+	if result.Error != nil {
+		return nil, domainerrors.ErrDatabaseOperation
+	}
+
+	return ids, nil
+}
+
 // deliveredNewsRepository implements deps.DeliveredNewsRepository
 type deliveredNewsRepository struct {
 	db *gorm.DB
@@ -145,6 +208,21 @@ func (r *deliveredNewsRepository) GetUsersByChannelID(ctx context.Context, chann
 		Select("DISTINCT delivered_news.user_id").
 		Joins("JOIN news ON delivered_news.news_id = news.id").
 		Where("news.channel_id = ?", channelID).
+		Pluck("user_id", &userIDs)
+
+	if result.Error != nil {
+		return nil, domainerrors.ErrDatabaseOperation
+	}
+
+	return userIDs, nil
+}
+
+// GetUsersByNewsID returns all user IDs who received the specific news
+func (r *deliveredNewsRepository) GetUsersByNewsID(ctx context.Context, newsID uint) ([]int64, error) {
+	var userIDs []int64
+	result := r.db.WithContext(ctx).
+		Model(&entities.DeliveredNews{}).
+		Where("news_id = ?", newsID).
 		Pluck("user_id", &userIDs)
 
 	if result.Error != nil {

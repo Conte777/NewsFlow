@@ -14,9 +14,10 @@ import (
 
 // mockTelegramClient is a test mock that implements domain.TelegramClient
 type mockTelegramClient struct {
-	accountID string
-	connected bool
-	mu        sync.RWMutex
+	accountID      string
+	connected      bool
+	updatesHealthy bool // Per-client health status
+	mu             sync.RWMutex
 }
 
 func (m *mockTelegramClient) Connect(ctx context.Context) error {
@@ -51,6 +52,18 @@ func (m *mockTelegramClient) IsConnected() bool {
 
 func (m *mockTelegramClient) GetAccountID() string {
 	return m.accountID
+}
+
+func (m *mockTelegramClient) IsUpdatesHealthy() bool {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.updatesHealthy
+}
+
+func (m *mockTelegramClient) setUpdatesHealthy(healthy bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.updatesHealthy = healthy
 }
 
 func (m *mockTelegramClient) setConnected(connected bool) {
@@ -1055,5 +1068,110 @@ func TestShutdown_GetAllAccountsAfterShutdown(t *testing.T) {
 	accounts := manager.GetAllAccounts()
 	if len(accounts) != 2 {
 		t.Errorf("Expected GetAllAccounts to return 2 accounts even after shutdown, got %d", len(accounts))
+	}
+}
+
+// Tests for per-client health tracking
+
+func TestPerClientHealthTracking_Independence(t *testing.T) {
+	// This test verifies that each client has independent health status
+	// Changing health on one client should NOT affect other clients
+	manager := NewAccountManager()
+
+	// Create three clients, all connected and initially unhealthy
+	client1 := createTestClient("+1111111111", true)
+	client2 := createTestClient("+2222222222", true)
+	client3 := createTestClient("+3333333333", true)
+
+	manager.AddAccount(client1)
+	manager.AddAccount(client2)
+	manager.AddAccount(client3)
+
+	// Initially all should be unhealthy (default false)
+	if client1.IsUpdatesHealthy() {
+		t.Error("client1 should be unhealthy initially")
+	}
+	if client2.IsUpdatesHealthy() {
+		t.Error("client2 should be unhealthy initially")
+	}
+	if client3.IsUpdatesHealthy() {
+		t.Error("client3 should be unhealthy initially")
+	}
+
+	// Mark only client1 as healthy
+	client1.setUpdatesHealthy(true)
+
+	// Verify only client1 is healthy
+	if !client1.IsUpdatesHealthy() {
+		t.Error("client1 should be healthy after setUpdatesHealthy(true)")
+	}
+	if client2.IsUpdatesHealthy() {
+		t.Error("client2 should still be unhealthy - health status should be independent")
+	}
+	if client3.IsUpdatesHealthy() {
+		t.Error("client3 should still be unhealthy - health status should be independent")
+	}
+
+	// Mark client2 as healthy too
+	client2.setUpdatesHealthy(true)
+
+	// Verify client1 and client2 are healthy, client3 is unhealthy
+	if !client1.IsUpdatesHealthy() {
+		t.Error("client1 should still be healthy")
+	}
+	if !client2.IsUpdatesHealthy() {
+		t.Error("client2 should be healthy after setUpdatesHealthy(true)")
+	}
+	if client3.IsUpdatesHealthy() {
+		t.Error("client3 should still be unhealthy - health status should be independent")
+	}
+
+	// Mark client1 as unhealthy (simulating disconnect)
+	client1.setUpdatesHealthy(false)
+
+	// Verify client1 is unhealthy, but client2 remains healthy
+	if client1.IsUpdatesHealthy() {
+		t.Error("client1 should be unhealthy after setUpdatesHealthy(false)")
+	}
+	if !client2.IsUpdatesHealthy() {
+		t.Error("client2 should remain healthy - other client's disconnect should not affect it")
+	}
+	if client3.IsUpdatesHealthy() {
+		t.Error("client3 should still be unhealthy")
+	}
+}
+
+func TestPerClientHealthTracking_ConcurrentUpdates(t *testing.T) {
+	// Test concurrent health status updates don't cause race conditions
+	manager := NewAccountManager()
+
+	// Create multiple clients
+	clients := make([]*mockTelegramClient, 5)
+	for i := 0; i < 5; i++ {
+		clients[i] = createTestClient(fmt.Sprintf("+%d000000000", i+1), true)
+		manager.AddAccount(clients[i])
+	}
+
+	var wg sync.WaitGroup
+	iterations := 100
+
+	// Concurrently toggle health status on all clients
+	for _, client := range clients {
+		wg.Add(1)
+		go func(c *mockTelegramClient) {
+			defer wg.Done()
+			for j := 0; j < iterations; j++ {
+				c.setUpdatesHealthy(j%2 == 0)
+				_ = c.IsUpdatesHealthy() // Read the value
+			}
+		}(client)
+	}
+
+	wg.Wait()
+
+	// Verify manager is still functional
+	accounts := manager.GetAllAccounts()
+	if len(accounts) != 5 {
+		t.Errorf("Expected 5 accounts after concurrent operations, got %d", len(accounts))
 	}
 }

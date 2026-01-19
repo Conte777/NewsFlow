@@ -93,3 +93,65 @@ func (h *Handlers) HandleDeliveryConfirmation(ctx context.Context, message []byt
 
 	return nil
 }
+
+// HandleNewsDeleted handles news deleted event from account service
+func (h *Handlers) HandleNewsDeleted(ctx context.Context, message []byte) error {
+	var event dto.NewsDeletedEvent
+	if err := json.Unmarshal(message, &event); err != nil {
+		h.logger.Error().Err(err).
+			Str("raw_message", string(message)).
+			Msg("Failed to unmarshal news deleted event")
+		return err
+	}
+
+	h.logger.Info().
+		Str("channel_id", event.ChannelID).
+		Ints("message_ids", event.MessageIDs).
+		Msg("Processing news deleted event")
+
+	if err := h.uc.ProcessNewsDeleted(ctx, event.ChannelID, event.MessageIDs); err != nil {
+		h.logger.Error().Err(err).
+			Str("channel_id", event.ChannelID).
+			Ints("message_ids", event.MessageIDs).
+			Msg("Failed to process news deleted event")
+		return err
+	}
+
+	h.logger.Info().
+		Str("channel_id", event.ChannelID).
+		Ints("message_ids", event.MessageIDs).
+		Msg("News deleted event processed successfully")
+
+	return nil
+}
+
+// HandleNewsEdited handles news edited event from account service
+func (h *Handlers) HandleNewsEdited(ctx context.Context, message []byte) error {
+	var event dto.NewsEditedEvent
+	if err := json.Unmarshal(message, &event); err != nil {
+		h.logger.Error().Err(err).
+			Str("raw_message", string(message)).
+			Msg("Failed to unmarshal news edited event")
+		return err
+	}
+
+	h.logger.Info().
+		Str("channel_id", event.ChannelID).
+		Int("message_id", event.MessageID).
+		Msg("Processing news edited event")
+
+	if err := h.uc.ProcessNewsEdited(ctx, &event); err != nil {
+		h.logger.Error().Err(err).
+			Str("channel_id", event.ChannelID).
+			Int("message_id", event.MessageID).
+			Msg("Failed to process news edited event")
+		return err
+	}
+
+	h.logger.Info().
+		Str("channel_id", event.ChannelID).
+		Int("message_id", event.MessageID).
+		Msg("News edited event processed successfully")
+
+	return nil
+}

@@ -27,6 +27,8 @@ type ErrorCallback func(news *domain.NewsItem, err error)
 type KafkaProducer struct {
 	producer      sarama.AsyncProducer
 	topic         string
+	topicDeleted  string
+	topicEdited   string
 	logger        zerolog.Logger
 	errorCallback ErrorCallback
 	wg            sync.WaitGroup
@@ -42,6 +44,8 @@ type KafkaProducer struct {
 type ProducerConfig struct {
 	Brokers         []string       // Kafka broker addresses
 	Topic           string         // Topic name for news items
+	TopicDeleted    string         // Topic name for deleted news events
+	TopicEdited     string         // Topic name for edited news events
 	Logger          zerolog.Logger // Logger for monitoring
 	ErrorCallback   ErrorCallback  // Optional callback for handling send errors
 	MaxMessageBytes int            // Max message size in bytes (default: 1MB)
@@ -127,9 +131,21 @@ func NewKafkaProducer(cfg ProducerConfig) (domain.KafkaProducer, error) {
 		return nil, fmt.Errorf("failed to create kafka producer: %w", err)
 	}
 
+	// Set default topic names if not provided
+	topicDeleted := cfg.TopicDeleted
+	if topicDeleted == "" {
+		topicDeleted = "news.deleted"
+	}
+	topicEdited := cfg.TopicEdited
+	if topicEdited == "" {
+		topicEdited = "news.edited"
+	}
+
 	kp := &KafkaProducer{
 		producer:      producer,
 		topic:         cfg.Topic,
+		topicDeleted:  topicDeleted,
+		topicEdited:   topicEdited,
 		logger:        cfg.Logger,
 		errorCallback: cfg.ErrorCallback,
 		errors:        make([]error, 0),
@@ -195,6 +211,97 @@ func (p *KafkaProducer) SendNewsReceived(ctx context.Context, news *domain.NewsI
 			Str("channel_id", news.ChannelID).
 			Int("message_id", news.MessageID).
 			Msg("News item queued for sending to Kafka")
+		return nil
+	case <-ctx.Done():
+		return fmt.Errorf("context cancelled while sending message: %w", ctx.Err())
+	}
+}
+
+// SendNewsDeleted sends a news deleted event to Kafka
+func (p *KafkaProducer) SendNewsDeleted(ctx context.Context, channelID string, messageIDs []int) error {
+	if channelID == "" {
+		return fmt.Errorf("channel_id is required")
+	}
+	if len(messageIDs) == 0 {
+		return fmt.Errorf("at least one message_id is required")
+	}
+
+	select {
+	case <-ctx.Done():
+		return fmt.Errorf("context cancelled before sending: %w", ctx.Err())
+	default:
+	}
+
+	event := &NewsDeletedEvent{
+		ChannelID:  channelID,
+		MessageIDs: messageIDs,
+		DeletedAt:  time.Now().Unix(),
+	}
+
+	value, err := json.Marshal(event)
+	if err != nil {
+		return fmt.Errorf("failed to marshal news deleted event: %w", err)
+	}
+
+	msg := &sarama.ProducerMessage{
+		Topic: p.topicDeleted,
+		Key:   sarama.StringEncoder(channelID),
+		Value: sarama.ByteEncoder(value),
+	}
+
+	select {
+	case p.producer.Input() <- msg:
+		p.logger.Info().
+			Str("channel_id", channelID).
+			Ints("message_ids", messageIDs).
+			Msg("News deleted event queued for sending to Kafka")
+		return nil
+	case <-ctx.Done():
+		return fmt.Errorf("context cancelled while sending message: %w", ctx.Err())
+	}
+}
+
+// SendNewsEdited sends a news edited event to Kafka
+func (p *KafkaProducer) SendNewsEdited(ctx context.Context, news *domain.NewsItem) error {
+	if news == nil {
+		return fmt.Errorf("news item is nil")
+	}
+	if err := validateNewsItem(news); err != nil {
+		return fmt.Errorf("invalid news item: %w", err)
+	}
+
+	select {
+	case <-ctx.Done():
+		return fmt.Errorf("context cancelled before sending: %w", ctx.Err())
+	default:
+	}
+
+	event := &NewsEditedEvent{
+		ChannelID:   news.ChannelID,
+		ChannelName: news.ChannelName,
+		MessageID:   news.MessageID,
+		Content:     news.Content,
+		MediaURLs:   news.MediaURLs,
+		EditedAt:    time.Now().Unix(),
+	}
+
+	value, err := json.Marshal(event)
+	if err != nil {
+		return fmt.Errorf("failed to marshal news edited event: %w", err)
+	}
+
+	msg := &sarama.ProducerMessage{
+		Topic: p.topicEdited,
+		Key:   sarama.StringEncoder(news.ChannelID),
+		Value: sarama.ByteEncoder(value),
+	}
+
+	select {
+	case p.producer.Input() <- msg:
+		p.logger.Info().
+			Str("channel_id", news.ChannelID).
+			Int("message_id", news.MessageID).
+			Msg("News edited event queued for sending to Kafka")
 		return nil
 	case <-ctx.Done():
 		return fmt.Errorf("context cancelled while sending message: %w", ctx.Err())

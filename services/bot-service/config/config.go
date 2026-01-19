@@ -14,8 +14,19 @@ type Config struct {
 	Telegram TelegramConfig
 	Kafka    KafkaConfig
 	GRPC     GRPCConfig
+	Database DatabaseConfig
 	Logging  LoggingConfig
 	Service  ServiceConfig
+}
+
+// DatabaseConfig holds database configuration
+type DatabaseConfig struct {
+	Host     string
+	Port     string
+	User     string
+	Password string
+	Name     string
+	SSLMode  string
 }
 
 // GRPCConfig holds gRPC client configuration

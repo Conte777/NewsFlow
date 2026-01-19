@@ -57,3 +57,39 @@ type ProcessNewsRequest struct {
 type ProcessNewsResponse struct {
 	NewsID uint `json:"newsId"`
 }
+
+// Incoming events from account-service
+
+// NewsDeletedEvent represents news deleted event from account service
+type NewsDeletedEvent struct {
+	ChannelID  string `json:"channel_id"`
+	MessageIDs []int  `json:"message_ids"`
+	DeletedAt  int64  `json:"deleted_at"`
+}
+
+// NewsEditedEvent represents news edited event from account service
+type NewsEditedEvent struct {
+	ChannelID   string   `json:"channel_id"`
+	ChannelName string   `json:"channel_name"`
+	MessageID   int      `json:"message_id"`
+	Content     string   `json:"content"`
+	MediaURLs   []string `json:"media_urls"`
+	EditedAt    int64    `json:"edited_at"`
+}
+
+// Outgoing events to bot-service
+
+// NewsDeleteDeliveryEvent represents delete delivery event to bot service
+type NewsDeleteDeliveryEvent struct {
+	NewsID  uint    `json:"news_id"`
+	UserIDs []int64 `json:"user_ids"`
+}
+
+// NewsEditDeliveryEvent represents edit delivery event to bot service
+type NewsEditDeliveryEvent struct {
+	NewsID      uint     `json:"news_id"`
+	UserIDs     []int64  `json:"user_ids"`
+	Content     string   `json:"content"`
+	ChannelName string   `json:"channel_name"`
+	MediaURLs   []string `json:"media_urls"`
+}

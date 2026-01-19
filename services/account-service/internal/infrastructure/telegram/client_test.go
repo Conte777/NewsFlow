@@ -2,6 +2,7 @@ package telegram
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/Conte777/NewsFlow/services/account-service/internal/domain"
@@ -122,7 +123,13 @@ func TestExtractMediaURLs_Photo(t *testing.T) {
 	}
 
 	media := &tg.MessageMediaPhoto{
-		Photo: &tg.Photo{ID: 12345},
+		Photo: &tg.Photo{
+			ID:   12345,
+			DCID: 2,
+			Sizes: []tg.PhotoSizeClass{
+				&tg.PhotoSize{Type: "y", W: 800, H: 600},
+			},
+		},
 	}
 
 	urls := client.extractMediaURLs(media)
@@ -131,9 +138,12 @@ func TestExtractMediaURLs_Photo(t *testing.T) {
 		t.Fatalf("expected 1 URL, got %d", len(urls))
 	}
 
-	expected := "photo://12345"
-	if urls[0] != expected {
-		t.Errorf("expected %s, got %s", expected, urls[0])
+	// Should return file_id in base64 format (not URL scheme)
+	if strings.Contains(urls[0], "://") {
+		t.Errorf("expected file_id format, got URL scheme: %s", urls[0])
+	}
+	if len(urls[0]) == 0 {
+		t.Error("expected non-empty file_id")
 	}
 }
 
@@ -145,7 +155,8 @@ func TestExtractMediaURLs_Video(t *testing.T) {
 
 	media := &tg.MessageMediaDocument{
 		Document: &tg.Document{
-			ID: 67890,
+			ID:   67890,
+			DCID: 2,
 			Attributes: []tg.DocumentAttributeClass{
 				&tg.DocumentAttributeVideo{},
 				&tg.DocumentAttributeFilename{FileName: "test.mp4"},
@@ -159,9 +170,12 @@ func TestExtractMediaURLs_Video(t *testing.T) {
 		t.Fatalf("expected 1 URL, got %d", len(urls))
 	}
 
-	expected := "video://67890:test.mp4"
-	if urls[0] != expected {
-		t.Errorf("expected %s, got %s", expected, urls[0])
+	// Should return file_id in base64 format (not URL scheme)
+	if strings.Contains(urls[0], "://") {
+		t.Errorf("expected file_id format, got URL scheme: %s", urls[0])
+	}
+	if len(urls[0]) == 0 {
+		t.Error("expected non-empty file_id")
 	}
 }
 
@@ -173,7 +187,8 @@ func TestExtractMediaURLs_Audio(t *testing.T) {
 
 	media := &tg.MessageMediaDocument{
 		Document: &tg.Document{
-			ID: 11111,
+			ID:   11111,
+			DCID: 2,
 			Attributes: []tg.DocumentAttributeClass{
 				&tg.DocumentAttributeAudio{},
 				&tg.DocumentAttributeFilename{FileName: "song.mp3"},
@@ -187,9 +202,12 @@ func TestExtractMediaURLs_Audio(t *testing.T) {
 		t.Fatalf("expected 1 URL, got %d", len(urls))
 	}
 
-	expected := "audio://11111:song.mp3"
-	if urls[0] != expected {
-		t.Errorf("expected %s, got %s", expected, urls[0])
+	// Should return file_id in base64 format (not URL scheme)
+	if strings.Contains(urls[0], "://") {
+		t.Errorf("expected file_id format, got URL scheme: %s", urls[0])
+	}
+	if len(urls[0]) == 0 {
+		t.Error("expected non-empty file_id")
 	}
 }
 
@@ -201,7 +219,8 @@ func TestExtractMediaURLs_Document(t *testing.T) {
 
 	media := &tg.MessageMediaDocument{
 		Document: &tg.Document{
-			ID: 22222,
+			ID:   22222,
+			DCID: 2,
 			Attributes: []tg.DocumentAttributeClass{
 				&tg.DocumentAttributeFilename{FileName: "file.pdf"},
 			},
@@ -214,9 +233,12 @@ func TestExtractMediaURLs_Document(t *testing.T) {
 		t.Fatalf("expected 1 URL, got %d", len(urls))
 	}
 
-	expected := "document://22222:file.pdf"
-	if urls[0] != expected {
-		t.Errorf("expected %s, got %s", expected, urls[0])
+	// Should return file_id in base64 format (not URL scheme)
+	if strings.Contains(urls[0], "://") {
+		t.Errorf("expected file_id format, got URL scheme: %s", urls[0])
+	}
+	if len(urls[0]) == 0 {
+		t.Error("expected non-empty file_id")
 	}
 }
 
@@ -229,28 +251,47 @@ func TestExtractMediaURLs_WebPage(t *testing.T) {
 	media := &tg.MessageMediaWebPage{
 		Webpage: &tg.WebPage{
 			URL: "https://example.com/article",
-			Photo: &tg.Photo{ID: 33333},
-			Document: &tg.Document{ID: 44444},
+			Photo: &tg.Photo{
+				ID:   33333,
+				DCID: 2,
+				Sizes: []tg.PhotoSizeClass{
+					&tg.PhotoSize{Type: "y", W: 800, H: 600},
+				},
+			},
+			Document: &tg.Document{
+				ID:   44444,
+				DCID: 2,
+			},
 		},
 	}
 
 	urls := client.extractMediaURLs(media)
 
-	// Should extract webpage URL, photo, and document
+	// Should extract webpage URL, photo file_id, and document file_id
 	if len(urls) != 3 {
 		t.Fatalf("expected 3 URLs, got %d: %v", len(urls), urls)
 	}
 
-	expectedURLs := map[string]bool{
-		"https://example.com/article": true,
-		"photo://33333":               true,
-		"document://44444":             true,
+	// Check that webpage URL is present
+	hasWebURL := false
+	for _, url := range urls {
+		if url == "https://example.com/article" {
+			hasWebURL = true
+		}
+	}
+	if !hasWebURL {
+		t.Error("expected webpage URL to be present")
 	}
 
+	// Check that photo and document are file_ids (not old URL format)
+	fileIDCount := 0
 	for _, url := range urls {
-		if !expectedURLs[url] {
-			t.Errorf("unexpected URL: %s", url)
+		if !strings.Contains(url, "://") {
+			fileIDCount++
 		}
+	}
+	if fileIDCount != 2 {
+		t.Errorf("expected 2 file_ids (photo and document), got %d", fileIDCount)
 	}
 }
 

@@ -393,6 +393,123 @@ func (h *NewsUpdateHandler) extractMediaURLs(media tg.MessageMediaClass) []strin
 	return urls
 }
 
+// OnDeleteChannelMessages handles channel message deletion updates
+func (h *NewsUpdateHandler) OnDeleteChannelMessages(
+	ctx context.Context,
+	e tg.Entities,
+	u *tg.UpdateDeleteChannelMessages,
+) error {
+	h.lastUpdateTime.Store(time.Now())
+
+	channelID := fmt.Sprintf("%d", u.ChannelID)
+
+	// Try to get channel username if available
+	if channel, ok := e.Channels[u.ChannelID]; ok {
+		if channel.Username != "" {
+			channelID = "@" + channel.Username
+		}
+	}
+
+	// Check if we're subscribed to this channel
+	exists, err := h.channelRepo.ChannelExists(ctx, channelID)
+	if err != nil {
+		h.logger.Error().Err(err).Str("channel_id", channelID).Msg("failed to check if channel exists")
+		return nil
+	}
+
+	if !exists {
+		h.logger.Debug().
+			Str("channel_id", channelID).
+			Ints("message_ids", u.Messages).
+			Msg("received delete event from unsubscribed channel, ignoring")
+		return nil
+	}
+
+	if len(u.Messages) == 0 {
+		return nil
+	}
+
+	if err := h.producer.SendNewsDeleted(ctx, channelID, u.Messages); err != nil {
+		h.logger.Error().Err(err).
+			Str("channel_id", channelID).
+			Ints("message_ids", u.Messages).
+			Msg("failed to send news deleted event to Kafka")
+		h.metrics.RecordKafkaError("send_deleted_failed")
+		return nil
+	}
+
+	h.logger.Info().
+		Str("channel_id", channelID).
+		Ints("message_ids", u.Messages).
+		Msg("news deleted event sent to Kafka")
+
+	return nil
+}
+
+// OnEditChannelMessage handles channel message edit updates
+func (h *NewsUpdateHandler) OnEditChannelMessage(
+	ctx context.Context,
+	e tg.Entities,
+	u *tg.UpdateEditChannelMessage,
+) error {
+	h.lastUpdateTime.Store(time.Now())
+
+	msg, ok := u.Message.(*tg.Message)
+	if !ok {
+		h.logger.Debug().Msg("skipping non-message edit update")
+		return nil
+	}
+
+	channelID, channelName := h.extractChannelInfo(msg, e)
+	if channelID == "" {
+		h.logger.Debug().Int("message_id", msg.ID).Msg("could not extract channel ID from edited message")
+		return nil
+	}
+
+	// Check if we're subscribed to this channel
+	exists, err := h.channelRepo.ChannelExists(ctx, channelID)
+	if err != nil {
+		h.logger.Error().Err(err).Str("channel_id", channelID).Msg("failed to check if channel exists")
+		return nil
+	}
+
+	if !exists {
+		h.logger.Debug().
+			Str("channel_id", channelID).
+			Int("message_id", msg.ID).
+			Msg("received edit event from unsubscribed channel, ignoring")
+		return nil
+	}
+
+	// Get channel name from repository if not available
+	if channelName == "" {
+		channel, err := h.channelRepo.GetChannel(ctx, channelID)
+		if err == nil && channel != nil {
+			channelName = channel.ChannelName
+		}
+	}
+
+	newsItem := h.convertToNewsItem(msg, channelID, channelName)
+
+	if err := h.producer.SendNewsEdited(ctx, &newsItem); err != nil {
+		h.logger.Error().Err(err).
+			Str("channel_id", channelID).
+			Int("message_id", msg.ID).
+			Msg("failed to send news edited event to Kafka")
+		h.metrics.RecordKafkaError("send_edited_failed")
+		return nil
+	}
+
+	h.logger.Info().
+		Str("channel_id", channelID).
+		Str("channel_name", channelName).
+		Int("message_id", msg.ID).
+		Int("content_length", len(newsItem.Content)).
+		Msg("news edited event sent to Kafka")
+
+	return nil
+}
+
 // IsHealthy returns true if the handler is receiving updates
 func (h *NewsUpdateHandler) IsHealthy() bool {
 	return h.healthy.Load()

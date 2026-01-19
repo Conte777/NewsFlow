@@ -36,12 +36,18 @@ const (
 
 // PhotoSizeSource constants
 const (
-	PhotoSizeSourceLegacy          = 0
-	PhotoSizeSourceThumbnail       = 1
-	PhotoSizeSourceDialogPhotoBig  = 2
+	PhotoSizeSourceLegacy           = 0
+	PhotoSizeSourceThumbnail        = 1
+	PhotoSizeSourceDialogPhotoBig   = 2
 	PhotoSizeSourceDialogPhotoSmall = 3
-	PhotoSizeSourceStickerSetThumb = 4
-	PhotoSizeSourceFullLegacy      = 5
+	PhotoSizeSourceStickerSetThumb  = 4
+	PhotoSizeSourceFullLegacy       = 5
+)
+
+// File ID encoding flags (from tg-file-decoder)
+const (
+	FileReferenceFlag = 1 << 25 // 0x02000000
+	WebLocationFlag   = 1 << 24 // 0x01000000
 )
 
 // FileIDData holds all data needed to encode a file_id
@@ -165,54 +171,58 @@ func DetectDocumentType(doc *tg.Document) int {
 }
 
 // encodeFileID serializes FileIDData to Bot API file_id format
+// Based on specification from github.com/danog/tg-file-decoder
 func encodeFileID(data FileIDData) string {
 	buf := make([]byte, 0, 64)
 
-	// Version and subversion
+	// Version constants (from current Telegram clients)
 	const version = 4
 	const subVersion = 47
 
-	buf = append(buf, byte(data.Type))
-	buf = append(buf, byte(data.DCID))
-
-	// File reference flag (1 if present)
-	hasFileRef := byte(0)
+	// 1. TypeID (4 bytes, LE) - includes FileReferenceFlag if present
+	typeID := int32(data.Type)
 	if len(data.FileReference) > 0 {
-		hasFileRef = 1
+		typeID |= FileReferenceFlag
 	}
-	buf = append(buf, hasFileRef)
+	buf = appendInt32(buf, typeID)
 
-	// For photos, add photo-specific data
+	// 2. DCID (4 bytes, LE)
+	buf = appendInt32(buf, int32(data.DCID))
+
+	// 3. FileReference (if present) - TL-style bytes encoding
+	if len(data.FileReference) > 0 {
+		buf = appendTLBytes(buf, data.FileReference)
+	}
+
+	// 4. ID (8 bytes, LE)
+	buf = appendInt64(buf, data.ID)
+
+	// 5. AccessHash (8 bytes, LE)
+	buf = appendInt64(buf, data.AccessHash)
+
+	// 6. For Photo: PhotoSizeSource data
 	if data.Type == TypePhoto {
-		// Photo size source
-		buf = append(buf, byte(data.PhotoSizeSource))
+		// SizeSource type (4 bytes, LE)
+		buf = appendInt32(buf, int32(data.PhotoSizeSource))
 
 		switch data.PhotoSizeSource {
 		case PhotoSizeSourceThumbnail:
-			// Thumbnail type (single char like 'y', 's', 'm', 'x', etc.)
-			buf = append(buf, data.ThumbnailType)
+			// FileType (4 bytes, LE) - same as TypePhoto
+			buf = appendInt32(buf, int32(TypePhoto))
+			// ThumbType as 4-byte padded char (e.g., 'y' -> 0x79000000)
+			buf = appendInt32(buf, int32(data.ThumbnailType))
 		case PhotoSizeSourceFullLegacy:
-			// Volume ID and local ID (deprecated, use 0)
+			// VolumeID (8 bytes) + LocalID (4 bytes) - deprecated format
 			buf = appendInt64(buf, data.VolumeID)
 			buf = appendInt32(buf, data.LocalID)
 		}
 	}
 
-	// ID and AccessHash (always present)
-	buf = appendInt64(buf, data.ID)
-	buf = appendInt64(buf, data.AccessHash)
-
-	// File reference (if present)
-	if len(data.FileReference) > 0 {
-		buf = appendVarint(buf, len(data.FileReference))
-		buf = append(buf, data.FileReference...)
-	}
-
-	// Add version info at the end
+	// 7. SubVersion + Version at the end (1 byte each)
 	buf = append(buf, byte(subVersion))
 	buf = append(buf, byte(version))
 
-	// Encode to base64 with Telegram's URL-safe format
+	// Apply RLE encoding and Base64URL encode
 	return rleEncode(buf)
 }
 
@@ -235,6 +245,38 @@ func appendVarint(buf []byte, v int) []byte {
 	b := make([]byte, binary.MaxVarintLen64)
 	n := binary.PutVarint(b, int64(v))
 	return append(buf, b[:n]...)
+}
+
+// appendTLBytes encodes bytes in Telegram TL-style format:
+// - Length < 254: 1 byte length + data + padding to 4-byte boundary
+// - Length >= 254: 0xFE + 3 bytes length (LE) + data + padding
+func appendTLBytes(buf []byte, data []byte) []byte {
+	length := len(data)
+
+	if length < 254 {
+		// Short encoding: 1 byte length
+		buf = append(buf, byte(length))
+		buf = append(buf, data...)
+		// Padding to 4-byte boundary (length byte + data)
+		paddingNeeded := (4 - (1+length)%4) % 4
+		for i := 0; i < paddingNeeded; i++ {
+			buf = append(buf, 0)
+		}
+	} else {
+		// Long encoding: 0xFE marker + 3-byte length
+		buf = append(buf, 0xFE)
+		buf = append(buf, byte(length&0xFF))
+		buf = append(buf, byte((length>>8)&0xFF))
+		buf = append(buf, byte((length>>16)&0xFF))
+		buf = append(buf, data...)
+		// Padding to 4-byte boundary (data only, marker+length already 4 bytes)
+		paddingNeeded := (4 - length%4) % 4
+		for i := 0; i < paddingNeeded; i++ {
+			buf = append(buf, 0)
+		}
+	}
+
+	return buf
 }
 
 // rleEncode encodes binary data to Telegram's base64 format with RLE for zeros

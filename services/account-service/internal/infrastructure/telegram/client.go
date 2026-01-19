@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/gotd/td/session"
@@ -65,6 +66,7 @@ type MTProtoClient struct {
 	stateStorage    *UpdatesStateStorage        // Persistent state storage
 	newsHandler     *handlers.NewsUpdateHandler // Handler for news updates
 	telegramUserID  int64                       // Telegram user ID for this account
+	updatesHealthy  atomic.Bool                 // Per-client real-time updates health status
 }
 
 // cachedChannelInfo represents a cached channel info entry with expiration
@@ -177,7 +179,9 @@ func (c *MTProtoClient) Connect(ctx context.Context) error {
 	// Register news handler if available
 	if c.newsHandler != nil {
 		c.dispatcher.OnNewChannelMessage(c.newsHandler.OnNewChannelMessage)
-		c.logger.Info().Msg("registered news update handler for real-time updates")
+		c.dispatcher.OnDeleteChannelMessages(c.newsHandler.OnDeleteChannelMessages)
+		c.dispatcher.OnEditChannelMessage(c.newsHandler.OnEditChannelMessage)
+		c.logger.Info().Msg("registered news update handlers for real-time updates (new, delete, edit)")
 	}
 
 	// Create state storage for persistent updates state
@@ -262,10 +266,9 @@ func (c *MTProtoClient) Connect(ctx context.Context) error {
 			if c.updatesManager != nil && c.telegramUserID != 0 {
 				c.logger.Info().Msg("starting updates manager for real-time updates")
 
-				// Mark handler as healthy
-				if c.newsHandler != nil {
-					c.newsHandler.SetHealthy(true)
-				}
+				// Mark this client's updates as healthy
+				c.updatesHealthy.Store(true)
+				c.logger.Debug().Msg("real-time updates marked as healthy for this client")
 
 				// Run updates manager - this will block until context is cancelled
 				return c.updatesManager.Run(ctx, c.api, c.telegramUserID, updates.AuthOptions{
@@ -278,10 +281,9 @@ func (c *MTProtoClient) Connect(ctx context.Context) error {
 			return ctx.Err()
 		})
 
-		// Mark handler as unhealthy on disconnect
-		if c.newsHandler != nil {
-			c.newsHandler.SetHealthy(false)
-		}
+		// Mark this client's updates as unhealthy on disconnect
+		c.updatesHealthy.Store(false)
+		c.logger.Debug().Msg("real-time updates marked as unhealthy for this client")
 
 		// Always send error to channel, even if nil
 		select {
@@ -1065,12 +1067,9 @@ func (c *MTProtoClient) GetTelegramUserID() int64 {
 	return c.telegramUserID
 }
 
-// IsUpdatesHealthy returns true if real-time updates are working
+// IsUpdatesHealthy returns true if real-time updates are working for this client
 func (c *MTProtoClient) IsUpdatesHealthy() bool {
-	if c.newsHandler == nil {
-		return false
-	}
-	return c.newsHandler.IsHealthy()
+	return c.updatesHealthy.Load()
 }
 
 // Ensure MTProtoClient implements domain.TelegramClient interface

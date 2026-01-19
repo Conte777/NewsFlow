@@ -113,3 +113,22 @@ func NewUnsubscriptionFailedEvent(userID int64, channelID, reason string) *Resul
 		Timestamp: time.Now().Unix(),
 	}
 }
+
+// News sync events (delete/edit)
+
+// NewsDeletedEvent is sent when messages are deleted from a channel
+type NewsDeletedEvent struct {
+	ChannelID  string `json:"channel_id"`
+	MessageIDs []int  `json:"message_ids"`
+	DeletedAt  int64  `json:"deleted_at"`
+}
+
+// NewsEditedEvent is sent when a message is edited in a channel
+type NewsEditedEvent struct {
+	ChannelID   string   `json:"channel_id"`
+	ChannelName string   `json:"channel_name"`
+	MessageID   int      `json:"message_id"`
+	Content     string   `json:"content"`
+	MediaURLs   []string `json:"media_urls"`
+	EditedAt    int64    `json:"edited_at"`
+}

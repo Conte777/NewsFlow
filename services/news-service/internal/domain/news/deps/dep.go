@@ -19,6 +19,15 @@ type NewsRepository interface {
 
 	// Exists checks if news exists
 	Exists(ctx context.Context, channelID string, messageID int) (bool, error)
+
+	// Update updates an existing news item
+	Update(ctx context.Context, news *entities.News) error
+
+	// SoftDelete performs soft delete on a single news item
+	SoftDelete(ctx context.Context, channelID string, messageID int) error
+
+	// SoftDeleteBatch performs soft delete on multiple news items, returns IDs of deleted news
+	SoftDeleteBatch(ctx context.Context, channelID string, messageIDs []int) ([]uint, error)
 }
 
 // DeliveredNewsRepository defines the interface for delivered news data access
@@ -34,12 +43,21 @@ type DeliveredNewsRepository interface {
 
 	// GetUsersByChannelID returns distinct users who received news from channel (for fallback)
 	GetUsersByChannelID(ctx context.Context, channelID string) ([]int64, error)
+
+	// GetUsersByNewsID returns all user IDs who received the specific news
+	GetUsersByNewsID(ctx context.Context, newsID uint) ([]int64, error)
 }
 
 // KafkaProducer defines interface for sending messages to Kafka
 type KafkaProducer interface {
 	// SendNewsDelivery sends batch news delivery event to bot service
 	SendNewsDelivery(ctx context.Context, newsID uint, userIDs []int64, channelID, channelName, content string, mediaURLs []string) error
+
+	// SendNewsDelete sends news delete event to bot service
+	SendNewsDelete(ctx context.Context, newsID uint, userIDs []int64) error
+
+	// SendNewsEdit sends news edit event to bot service
+	SendNewsEdit(ctx context.Context, newsID uint, userIDs []int64, content, channelName string, mediaURLs []string) error
 
 	// Close closes the producer
 	Close() error

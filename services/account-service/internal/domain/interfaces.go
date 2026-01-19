@@ -120,6 +120,12 @@ type KafkaProducer interface {
 	// SendNewsReceived sends news received event to news service
 	SendNewsReceived(ctx context.Context, news *NewsItem) error
 
+	// SendNewsDeleted sends news deleted event when messages are deleted from channel
+	SendNewsDeleted(ctx context.Context, channelID string, messageIDs []int) error
+
+	// SendNewsEdited sends news edited event when a message is edited in channel
+	SendNewsEdited(ctx context.Context, news *NewsItem) error
+
 	// Close closes the producer
 	Close() error
 

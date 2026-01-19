@@ -14,6 +14,8 @@ import (
 
 const (
 	topicNewsDelivery = "news.deliver"
+	topicNewsDelete   = "news.delete"
+	topicNewsEdit     = "news.edit"
 )
 
 type NewsDeliveryMessage struct {
@@ -24,6 +26,19 @@ type NewsDeliveryMessage struct {
 	Content     string   `json:"content"`
 	MediaURLs   []string `json:"media_urls"`
 	Timestamp   int64    `json:"timestamp"`
+}
+
+type NewsDeleteMessage struct {
+	NewsID  uint    `json:"news_id"`
+	UserIDs []int64 `json:"user_ids"`
+}
+
+type NewsEditMessage struct {
+	NewsID      uint     `json:"news_id"`
+	UserIDs     []int64  `json:"user_ids"`
+	Content     string   `json:"content"`
+	ChannelName string   `json:"channel_name"`
+	MediaURLs   []string `json:"media_urls"`
 }
 
 type Producer struct {
@@ -85,6 +100,77 @@ func (p *Producer) SendNewsDelivery(ctx context.Context, newsID uint, userIDs []
 		Uint("news_id", newsID).
 		Int("users_count", len(userIDs)).
 		Msg("Batch news delivery message sent")
+
+	return nil
+}
+
+func (p *Producer) SendNewsDelete(ctx context.Context, newsID uint, userIDs []int64) error {
+	msg := NewsDeleteMessage{
+		NewsID:  newsID,
+		UserIDs: userIDs,
+	}
+
+	data, err := json.Marshal(msg)
+	if err != nil {
+		return fmt.Errorf("failed to marshal message: %w", err)
+	}
+
+	key := fmt.Sprintf("news-%d", newsID)
+
+	err = p.writer.WriteMessages(ctx, kafka.Message{
+		Topic: topicNewsDelete,
+		Key:   []byte(key),
+		Value: data,
+	})
+	if err != nil {
+		p.logger.Error().Err(err).
+			Uint("news_id", newsID).
+			Int("users_count", len(userIDs)).
+			Msg("Failed to send news delete message")
+		return fmt.Errorf("failed to send message: %w", err)
+	}
+
+	p.logger.Debug().
+		Uint("news_id", newsID).
+		Int("users_count", len(userIDs)).
+		Msg("News delete message sent")
+
+	return nil
+}
+
+func (p *Producer) SendNewsEdit(ctx context.Context, newsID uint, userIDs []int64, content, channelName string, mediaURLs []string) error {
+	msg := NewsEditMessage{
+		NewsID:      newsID,
+		UserIDs:     userIDs,
+		Content:     content,
+		ChannelName: channelName,
+		MediaURLs:   mediaURLs,
+	}
+
+	data, err := json.Marshal(msg)
+	if err != nil {
+		return fmt.Errorf("failed to marshal message: %w", err)
+	}
+
+	key := fmt.Sprintf("news-%d", newsID)
+
+	err = p.writer.WriteMessages(ctx, kafka.Message{
+		Topic: topicNewsEdit,
+		Key:   []byte(key),
+		Value: data,
+	})
+	if err != nil {
+		p.logger.Error().Err(err).
+			Uint("news_id", newsID).
+			Int("users_count", len(userIDs)).
+			Msg("Failed to send news edit message")
+		return fmt.Errorf("failed to send message: %w", err)
+	}
+
+	p.logger.Debug().
+		Uint("news_id", newsID).
+		Int("users_count", len(userIDs)).
+		Msg("News edit message sent")
 
 	return nil
 }

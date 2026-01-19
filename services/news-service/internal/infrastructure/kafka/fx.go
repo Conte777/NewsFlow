@@ -15,6 +15,8 @@ var Module = fx.Module("kafka",
 	fx.Provide(NewProducerFx),
 	fx.Provide(NewConsumer),
 	fx.Invoke(registerConsumerLifecycle),
+	fx.Invoke(registerDeletedConsumerLifecycle),
+	fx.Invoke(registerEditedConsumerLifecycle),
 )
 
 func NewProducerFx(
@@ -43,6 +45,44 @@ func registerConsumerLifecycle(
 	logger zerolog.Logger,
 ) {
 	consumer := NewConsumer(cfg, handlers, logger.With().Str("component", "kafka-consumer").Logger())
+
+	lc.Append(fx.Hook{
+		OnStart: func(_ context.Context) error {
+			consumer.Start()
+			return nil
+		},
+		OnStop: func(_ context.Context) error {
+			return consumer.Stop()
+		},
+	})
+}
+
+func registerDeletedConsumerLifecycle(
+	lc fx.Lifecycle,
+	cfg *config.KafkaConfig,
+	handlers *kafkaHandlers.Handlers,
+	logger zerolog.Logger,
+) {
+	consumer := NewNewsDeletedConsumer(cfg, handlers, logger.With().Str("component", "kafka-deleted-consumer").Logger())
+
+	lc.Append(fx.Hook{
+		OnStart: func(_ context.Context) error {
+			consumer.Start()
+			return nil
+		},
+		OnStop: func(_ context.Context) error {
+			return consumer.Stop()
+		},
+	})
+}
+
+func registerEditedConsumerLifecycle(
+	lc fx.Lifecycle,
+	cfg *config.KafkaConfig,
+	handlers *kafkaHandlers.Handlers,
+	logger zerolog.Logger,
+) {
+	consumer := NewNewsEditedConsumer(cfg, handlers, logger.With().Str("component", "kafka-edited-consumer").Logger())
 
 	lc.Append(fx.Hook{
 		OnStart: func(_ context.Context) error {

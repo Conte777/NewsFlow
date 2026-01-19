@@ -269,3 +269,150 @@ func (u *UseCase) getChannelSubscribersWithFallback(ctx context.Context, channel
 
 	return fallbackUsers, nil
 }
+
+// ProcessNewsDeleted processes news deleted events
+func (u *UseCase) ProcessNewsDeleted(ctx context.Context, channelID string, messageIDs []int) error {
+	if channelID == "" {
+		return domainerrors.ErrInvalidChannelID
+	}
+
+	if len(messageIDs) == 0 {
+		u.logger.Debug().Str("channel_id", channelID).Msg("No message IDs to delete")
+		return nil
+	}
+
+	// Soft delete news and get their IDs
+	deletedIDs, err := u.newsRepo.SoftDeleteBatch(ctx, channelID, messageIDs)
+	if err != nil {
+		u.logger.Error().Err(err).
+			Str("channel_id", channelID).
+			Ints("message_ids", messageIDs).
+			Msg("Failed to soft delete news")
+		return err
+	}
+
+	if len(deletedIDs) == 0 {
+		u.logger.Debug().
+			Str("channel_id", channelID).
+			Ints("message_ids", messageIDs).
+			Msg("No news found to delete")
+		return nil
+	}
+
+	u.logger.Info().
+		Str("channel_id", channelID).
+		Int("deleted_count", len(deletedIDs)).
+		Msg("News soft deleted")
+
+	// For each deleted news, notify users who received it
+	for _, newsID := range deletedIDs {
+		userIDs, err := u.deliveredRepo.GetUsersByNewsID(ctx, newsID)
+		if err != nil {
+			u.logger.Error().Err(err).
+				Uint("news_id", newsID).
+				Msg("Failed to get users for deleted news")
+			continue
+		}
+
+		if len(userIDs) == 0 {
+			continue
+		}
+
+		if err := u.kafkaProducer.SendNewsDelete(ctx, newsID, userIDs); err != nil {
+			u.logger.Error().Err(err).
+				Uint("news_id", newsID).
+				Int("users_count", len(userIDs)).
+				Msg("Failed to send news delete event")
+			continue
+		}
+
+		u.logger.Info().
+			Uint("news_id", newsID).
+			Int("users_count", len(userIDs)).
+			Msg("News delete event sent to users")
+	}
+
+	return nil
+}
+
+// ProcessNewsEdited processes news edited events
+func (u *UseCase) ProcessNewsEdited(ctx context.Context, event *dto.NewsEditedEvent) error {
+	if event.ChannelID == "" {
+		return domainerrors.ErrInvalidChannelID
+	}
+
+	// Find existing news
+	news, err := u.newsRepo.GetByChannelAndMessageID(ctx, event.ChannelID, event.MessageID)
+	if err != nil {
+		if errors.Is(err, domainerrors.ErrNewsNotFound) {
+			u.logger.Debug().
+				Str("channel_id", event.ChannelID).
+				Int("message_id", event.MessageID).
+				Msg("Edited news not found in DB, skipping")
+			return nil
+		}
+		u.logger.Error().Err(err).
+			Str("channel_id", event.ChannelID).
+			Int("message_id", event.MessageID).
+			Msg("Failed to find news for edit")
+		return err
+	}
+
+	// Update news content
+	mediaURLsJSON, err := json.Marshal(event.MediaURLs)
+	if err != nil {
+		u.logger.Error().Err(err).Msg("Failed to marshal media URLs")
+		mediaURLsJSON = []byte("[]")
+	}
+
+	news.Content = event.Content
+	news.MediaURLs = string(mediaURLsJSON)
+	if event.ChannelName != "" {
+		news.ChannelName = event.ChannelName
+	}
+
+	if err := u.newsRepo.Update(ctx, news); err != nil {
+		u.logger.Error().Err(err).
+			Uint("news_id", news.ID).
+			Msg("Failed to update news")
+		return err
+	}
+
+	u.logger.Info().
+		Uint("news_id", news.ID).
+		Str("channel_id", event.ChannelID).
+		Int("message_id", event.MessageID).
+		Msg("News updated")
+
+	// Get users who received this news
+	userIDs, err := u.deliveredRepo.GetUsersByNewsID(ctx, news.ID)
+	if err != nil {
+		u.logger.Error().Err(err).
+			Uint("news_id", news.ID).
+			Msg("Failed to get users for edited news")
+		return err
+	}
+
+	if len(userIDs) == 0 {
+		u.logger.Debug().
+			Uint("news_id", news.ID).
+			Msg("No users to notify about edited news")
+		return nil
+	}
+
+	// Send edit event to bot-service
+	if err := u.kafkaProducer.SendNewsEdit(ctx, news.ID, userIDs, event.Content, news.ChannelName, event.MediaURLs); err != nil {
+		u.logger.Error().Err(err).
+			Uint("news_id", news.ID).
+			Int("users_count", len(userIDs)).
+			Msg("Failed to send news edit event")
+		return err
+	}
+
+	u.logger.Info().
+		Uint("news_id", news.ID).
+		Int("users_count", len(userIDs)).
+		Msg("News edit event sent to users")
+
+	return nil
+}
