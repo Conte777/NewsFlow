@@ -149,6 +149,10 @@ func (c *RejectionConsumer) handleRejection(ctx context.Context, data []byte) er
 		Str("type", event.Type).
 		Msg("Sending rejection notification to user")
 
+	if err := c.sender.SendChatAction(ctx, userID, "typing"); err != nil {
+		c.logger.Warn().Int64("user_id", userID).Err(err).Msg("Failed to send typing indicator")
+	}
+
 	return c.sender.SendMessage(ctx, userID, message)
 }
 

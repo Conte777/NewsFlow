@@ -155,6 +155,10 @@ func (c *ConfirmationConsumer) handleConfirmation(ctx context.Context, data []by
 		Str("type", event.Type).
 		Msg("Sending confirmation notification to user")
 
+	if err := c.sender.SendChatAction(ctx, userID, "typing"); err != nil {
+		c.logger.Warn().Int64("user_id", userID).Err(err).Msg("Failed to send typing indicator")
+	}
+
 	return c.sender.SendMessage(ctx, userID, message)
 }
 

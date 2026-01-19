@@ -15,6 +15,9 @@ type TelegramSender interface {
 
 	// SendMessageWithMedia sends a message with media to user
 	SendMessageWithMedia(ctx context.Context, userID int64, text string, mediaURLs []string) error
+
+	// SendChatAction sends typing indicator or other chat action
+	SendChatAction(ctx context.Context, userID int64, action string) error
 }
 
 // SubscriptionEventProducer defines interface for sending subscription events to Kafka

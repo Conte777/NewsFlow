@@ -109,6 +109,23 @@ func (h *Handlers) SendMessageWithMedia(ctx context.Context, userID int64, text 
 	return h.sendMultipleMediaGroups(ctx, userID, text, mediaInfos)
 }
 
+// SendChatAction implements deps.TelegramSender interface
+func (h *Handlers) SendChatAction(ctx context.Context, userID int64, action string) error {
+	msgCtx, cancel := context.WithTimeout(ctx, RequestTimeout)
+	defer cancel()
+
+	_, err := h.bot.SendChatAction(msgCtx, &tgbot.SendChatActionParams{
+		ChatID: userID,
+		Action: models.ChatAction(action),
+	})
+
+	if err != nil {
+		h.logger.Warn().Int64("user_id", userID).Str("action", action).Err(err).Msg("Failed to send chat action")
+	}
+
+	return err
+}
+
 // HandleStart handles /start command
 func (h *Handlers) HandleStart(ctx context.Context, bot *tgbot.Bot, update *models.Update) {
 	userID := update.Message.From.ID
@@ -170,15 +187,14 @@ func (h *Handlers) HandleForwardedMessage(ctx context.Context, bot *tgbot.Bot, u
 		ChannelName: channelName,
 	}
 
-	resp, err := h.uc.HandleToggleSubscription(ctx, req)
+	err = h.uc.HandleToggleSubscription(ctx, req)
 	if err != nil {
 		h.logError(int64(userID), "forward", err)
 		h.sendResponse(ctx, chatID, "❌ Произошла ошибка при обработке подписки")
 		return
 	}
 
-	h.sendResponse(ctx, chatID, resp.Message)
-	h.logCommand(int64(userID), "forward", resp.Action)
+	h.logCommand(int64(userID), "forward", "requested")
 }
 
 // extractChannelFromForward extracts channel ID and name from forwarded message
@@ -455,6 +471,15 @@ func (h *Handlers) validateAndClassifyMedia(mediaURLs []string) ([]MediaInfo, er
 }
 
 func (h *Handlers) validateMediaURL(mediaURL string) error {
+	// Check if this is a Telegram file_id (no URL scheme)
+	// file_id is a base64-encoded string without "://"
+	if !strings.Contains(mediaURL, "://") {
+		// This is a file_id, accept it without validation
+		// Telegram will handle invalid file_ids gracefully
+		return nil
+	}
+
+	// For URLs, do basic validation
 	parsedURL, err := url.Parse(mediaURL)
 	if err != nil {
 		return fmt.Errorf("invalid URL format '%s': %w", mediaURL, err)
@@ -464,26 +489,27 @@ func (h *Handlers) validateMediaURL(mediaURL string) error {
 		return fmt.Errorf("unsupported URL scheme '%s' for '%s'", parsedURL.Scheme, mediaURL)
 	}
 
-	req, err := http.NewRequest("HEAD", mediaURL, nil)
-	if err != nil {
-		return fmt.Errorf("failed to create HEAD request for '%s': %w", mediaURL, err)
-	}
-
-	resp, err := h.httpClient.Do(req)
-	if err != nil {
-		return fmt.Errorf("failed to access media URL '%s': %w", mediaURL, err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("media URL '%s' returned status %d", mediaURL, resp.StatusCode)
-	}
-
+	// Skip HEAD request - it can fail for many legitimate URLs
+	// and Telegram will handle invalid URLs gracefully
 	return nil
 }
 
-// classifyMedia determines media file type by URL
+// classifyMedia determines media file type by URL or file_id
 func (h *Handlers) classifyMedia(mediaURL string) (MediaInfo, error) {
+	// Check if this is a Telegram file_id (no URL scheme)
+	if !strings.Contains(mediaURL, "://") {
+		// This is a file_id - use Photo as default type
+		// Telegram Bot API will correctly handle the file_id regardless of the method used
+		// sendPhoto, sendVideo, sendDocument all accept file_id and Telegram determines the actual type
+		return MediaInfo{
+			URL:      mediaURL,
+			Type:     MediaTypePhoto, // Default to photo, works for most file_ids
+			MimeType: "",
+			FileName: "",
+		}, nil
+	}
+
+	// For URLs, determine type from extension and content-type
 	parsedURL, _ := url.Parse(mediaURL)
 	fileName := path.Base(parsedURL.Path)
 	ext := strings.ToLower(path.Ext(fileName))
@@ -536,14 +562,23 @@ func (h *Handlers) determineMediaType(mimeType, ext string) MediaType {
 }
 
 func (h *Handlers) checkFileSize(mediaInfo MediaInfo) error {
+	// Skip size check for file_id - Telegram already has the file, no need to check
+	if !strings.Contains(mediaInfo.URL, "://") {
+		return nil
+	}
+
 	req, err := http.NewRequest("HEAD", mediaInfo.URL, nil)
 	if err != nil {
-		return fmt.Errorf("failed to create HEAD request: %w", err)
+		// Don't fail on HEAD request error, Telegram will handle it
+		h.logger.Warn().Str("url", mediaInfo.URL).Err(err).Msg("Could not create HEAD request, skipping size check")
+		return nil
 	}
 
 	resp, err := h.httpClient.Do(req)
 	if err != nil {
-		return fmt.Errorf("failed to get file size for '%s': %w", mediaInfo.URL, err)
+		// Don't fail on network error, let Telegram try to fetch
+		h.logger.Warn().Str("url", mediaInfo.URL).Err(err).Msg("Could not check file size, proceeding anyway")
+		return nil
 	}
 	defer resp.Body.Close()
 

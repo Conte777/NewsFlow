@@ -82,8 +82,8 @@ func (uc *UseCase) HandleHelp(ctx context.Context) (*dto.CommandResponse, error)
 // Sends subscription.requested event - subscription-service determines action:
 // - If not subscribed: creates pending subscription
 // - If already subscribed: initiates unsubscription
-// User receives immediate response, errors are sent via rejection events
-func (uc *UseCase) HandleToggleSubscription(ctx context.Context, req *dto.ToggleSubscriptionRequest) (*dto.ToggleSubscriptionResponse, error) {
+// Actual result will come via Kafka confirmation/rejection events
+func (uc *UseCase) HandleToggleSubscription(ctx context.Context, req *dto.ToggleSubscriptionRequest) error {
 	uc.logger.Info().
 		Int64("user_id", req.UserID).
 		Str("channel_id", req.ChannelID).
@@ -98,15 +98,10 @@ func (uc *UseCase) HandleToggleSubscription(ctx context.Context, req *dto.Toggle
 	}
 	if err := uc.producer.SendSubscriptionCreated(ctx, subscription); err != nil {
 		uc.logger.Error().Err(err).Msg("Failed to send subscription request event")
-		return nil, fmt.Errorf("failed to send subscription request: %w", err)
+		return fmt.Errorf("failed to send subscription request: %w", err)
 	}
 
-	// Immediate response - actual result will come via Kafka events
-	// If error occurs, user will receive rejection notification
-	return &dto.ToggleSubscriptionResponse{
-		Message: fmt.Sprintf("✅ Запрос на канал %s обрабатывается", req.ChannelID),
-		Action:  "requested",
-	}, nil
+	return nil
 }
 
 // HandleListSubscriptions handles listing user subscriptions
