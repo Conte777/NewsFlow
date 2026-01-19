@@ -28,6 +28,7 @@ type NewsItem struct {
 	Content     string    `json:"content"`
 	MediaURLs   []string  `json:"media_urls"`
 	Date        time.Time `json:"date"`
+	GroupedID   int64     `json:"grouped_id,omitempty"` // Album/media group ID for grouping related messages
 }
 
 // SubscriptionEvent represents a subscription event from subscription service

@@ -6,6 +6,7 @@ import (
 
 	"github.com/Conte777/NewsFlow/services/account-service/config"
 	"github.com/Conte777/NewsFlow/services/account-service/internal/domain"
+	"github.com/Conte777/NewsFlow/services/account-service/internal/domain/news/handlers"
 	"github.com/rs/zerolog"
 	"go.uber.org/fx"
 	"gorm.io/gorm"
@@ -28,13 +29,16 @@ func NewAccountManagerFx(
 	telegramCfg *config.TelegramConfig,
 	db *gorm.DB,
 	accountRepo *AccountRepository,
+	newsHandler *handlers.NewsUpdateHandler,
 	logger zerolog.Logger,
 ) (domain.AccountManager, error) {
 	manager := NewAccountManager().(*accountManager)
-	manager.WithLogger(logger).WithDB(db)
+	manager.WithLogger(logger).WithDB(db).WithNewsHandler(newsHandler)
 
 	// Set client factory to use PostgreSQL session storage
 	manager.clientFactory = NewMTProtoClient
+
+	logger.Info().Msg("Account manager configured with real-time news handler")
 
 	// Channel to stop the sync goroutine
 	stopSync := make(chan struct{})

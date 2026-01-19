@@ -78,8 +78,9 @@ type ServiceConfig struct {
 
 // NewsConfig holds news collection configuration
 type NewsConfig struct {
-	PollInterval      time.Duration // Interval between news collection cycles
-	CollectionTimeout time.Duration // Timeout for single collection cycle
+	PollInterval         time.Duration // Interval between news collection cycles (when real-time updates are disabled)
+	FallbackPollInterval time.Duration // Fallback interval when real-time updates ARE working (longer, for catching missed updates)
+	CollectionTimeout    time.Duration // Timeout for single collection cycle
 }
 
 // Load loads configuration from environment variables
@@ -95,6 +96,11 @@ func Load() (*Config, error) {
 	pollInterval, err := time.ParseDuration(getEnv("NEWS_POLL_INTERVAL", "30s"))
 	if err != nil {
 		return nil, fmt.Errorf("invalid NEWS_POLL_INTERVAL: %w", err)
+	}
+
+	fallbackPollInterval, err := time.ParseDuration(getEnv("NEWS_FALLBACK_POLL_INTERVAL", "5m"))
+	if err != nil {
+		return nil, fmt.Errorf("invalid NEWS_FALLBACK_POLL_INTERVAL: %w", err)
 	}
 
 	collectionTimeout, err := time.ParseDuration(getEnv("NEWS_COLLECTION_TIMEOUT", "5m"))
@@ -158,8 +164,9 @@ func Load() (*Config, error) {
 			ShutdownTimeout: shutdownTimeout,
 		},
 		News: NewsConfig{
-			PollInterval:      pollInterval,
-			CollectionTimeout: collectionTimeout,
+			PollInterval:         pollInterval,
+			FallbackPollInterval: fallbackPollInterval,
+			CollectionTimeout:    collectionTimeout,
 		},
 	}
 

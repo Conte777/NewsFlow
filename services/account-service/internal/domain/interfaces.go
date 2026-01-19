@@ -43,6 +43,9 @@ type TelegramClient interface {
 
 	// GetAccountID returns unique identifier for this account (e.g., phone number)
 	GetAccountID() string
+
+	// IsUpdatesHealthy returns true if real-time updates are working
+	IsUpdatesHealthy() bool
 }
 
 // AccountManager manages multiple Telegram accounts

@@ -32,7 +32,7 @@ func NewConsumer(cfg *config.KafkaConfig, handlers *kafkaHandlers.Handlers, logg
 		GroupID:     cfg.GroupID,
 		MinBytes:    minBytes,
 		MaxBytes:    maxBytes,
-		MaxWait:     3 * time.Second,
+		MaxWait:     500 * time.Millisecond, // Reduced from 3s for faster real-time delivery
 		StartOffset: kafka.FirstOffset,
 	})
 

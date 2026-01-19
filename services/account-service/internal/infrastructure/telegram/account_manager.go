@@ -11,6 +11,7 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/Conte777/NewsFlow/services/account-service/internal/domain"
+	"github.com/Conte777/NewsFlow/services/account-service/internal/domain/news/handlers"
 )
 
 // ClientFactory is a function type for creating Telegram clients with database connection
@@ -32,6 +33,9 @@ type accountManager struct {
 	// logger is used for logging shutdown process and errors
 	// If not set, uses zerolog.Nop()
 	logger zerolog.Logger
+
+	// newsHandler is set for all clients to enable real-time updates
+	newsHandler *handlers.NewsUpdateHandler
 
 	// isShutdown prevents operations after Shutdown has been called
 	isShutdown atomic.Bool
@@ -55,6 +59,12 @@ func (m *accountManager) WithLogger(logger zerolog.Logger) *accountManager {
 // WithDB sets the database connection for session storage
 func (m *accountManager) WithDB(db *gorm.DB) *accountManager {
 	m.db = db
+	return m
+}
+
+// WithNewsHandler sets the news handler for all clients to enable real-time updates
+func (m *accountManager) WithNewsHandler(handler *handlers.NewsUpdateHandler) *accountManager {
+	m.newsHandler = handler
 	return m
 }
 
@@ -153,6 +163,14 @@ func (m *accountManager) InitializeAccounts(ctx context.Context, cfg domain.Acco
 				report.FailedAccounts++
 				reportMu.Unlock()
 				return
+			}
+
+			// Set news handler for real-time updates (if available)
+			if m.newsHandler != nil {
+				if mtpClient, ok := client.(*MTProtoClient); ok {
+					mtpClient.SetNewsHandler(m.newsHandler)
+					logger.Debug().Msg("News handler set for real-time updates")
+				}
 			}
 
 			// Connect to Telegram with context

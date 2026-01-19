@@ -11,6 +11,7 @@ import (
 
 	"github.com/gotd/td/session"
 	"github.com/gotd/td/telegram"
+	"github.com/gotd/td/telegram/updates"
 	"github.com/gotd/td/tg"
 	"github.com/gotd/td/tgerr"
 	"github.com/rs/zerolog"
@@ -18,6 +19,8 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/Conte777/NewsFlow/services/account-service/internal/domain"
+	"github.com/Conte777/NewsFlow/services/account-service/internal/domain/news/handlers"
+	"github.com/Conte777/NewsFlow/services/account-service/internal/infrastructure/telegram/fileid"
 )
 
 // MTProtoClient implements domain.TelegramClient using gotd/td library
@@ -54,6 +57,14 @@ type MTProtoClient struct {
 	channelInfoCache      map[string]*cachedChannelInfo
 	channelInfoCacheMu    sync.RWMutex
 	channelInfoCacheTTL   time.Duration
+
+	// Real-time updates support
+	db              *gorm.DB                    // Database for updates state storage
+	updatesManager  *updates.Manager            // Telegram updates manager
+	dispatcher      tg.UpdateDispatcher         // Update event dispatcher (value type)
+	stateStorage    *UpdatesStateStorage        // Persistent state storage
+	newsHandler     *handlers.NewsUpdateHandler // Handler for news updates
+	telegramUserID  int64                       // Telegram user ID for this account
 }
 
 // cachedChannelInfo represents a cached channel info entry with expiration
@@ -102,6 +113,7 @@ func NewMTProtoClient(cfg MTProtoClientConfig, db *gorm.DB) (domain.TelegramClie
 		rateLimiter:         rate.NewLimiter(rate.Every(time.Second), 10),
 		channelInfoCache:    make(map[string]*cachedChannelInfo),
 		channelInfoCacheTTL: 15 * time.Minute,
+		db:                  db,
 	}
 
 	return client, nil
@@ -159,13 +171,37 @@ func (c *MTProtoClient) Connect(ctx context.Context) error {
 
 	c.logger.Info().Msg("connecting to Telegram")
 
-	// Create telegram client with session storage
+	// Create dispatcher for handling real-time updates
+	c.dispatcher = tg.NewUpdateDispatcher()
+
+	// Register news handler if available
+	if c.newsHandler != nil {
+		c.dispatcher.OnNewChannelMessage(c.newsHandler.OnNewChannelMessage)
+		c.logger.Info().Msg("registered news update handler for real-time updates")
+	}
+
+	// Create state storage for persistent updates state
+	if c.db != nil {
+		c.stateStorage = NewUpdatesStateStorage(c.db, c.logger)
+		c.logger.Debug().Msg("created updates state storage")
+	}
+
+	// Create updates manager with persistent storage
+	c.updatesManager = updates.New(updates.Config{
+		Handler: c.dispatcher,
+		Storage: c.stateStorage,
+		Logger:  nil, // Use gotd default logger
+	})
+
+	// Create telegram client with session storage and updates handler
 	c.client = telegram.NewClient(c.apiID, c.apiHash, telegram.Options{
 		SessionStorage: c.sessionStorage,
+		UpdateHandler:  c.updatesManager,
 	})
 
 	// Create cancellable context for client lifecycle
-	clientCtx, cancel := context.WithCancel(ctx)
+	// Use background context to keep client running independently
+	clientCtx, cancel := context.WithCancel(context.Background())
 	c.cancelFunc = cancel
 
 	// Channel to signal when connection is ready
@@ -199,6 +235,15 @@ func (c *MTProtoClient) Connect(ctx context.Context) error {
 				c.logger.Info().Msg("session restored from storage")
 			}
 
+			// Get self info to get user ID for updates manager
+			self, err := c.client.Self(ctx)
+			if err != nil {
+				c.logger.Warn().Err(err).Msg("failed to get self info, updates manager will run without user ID")
+			} else {
+				c.telegramUserID = self.ID
+				c.logger.Info().Int64("user_id", c.telegramUserID).Msg("got telegram user ID")
+			}
+
 			// Set connected state
 			c.connected = true
 			c.logger.Info().Msg("successfully connected to Telegram")
@@ -213,10 +258,31 @@ func (c *MTProtoClient) Connect(ctx context.Context) error {
 			// Signal that connection is ready
 			close(readyChan)
 
-			// Keep connection alive
+			// Start updates manager to receive real-time updates
+			if c.updatesManager != nil && c.telegramUserID != 0 {
+				c.logger.Info().Msg("starting updates manager for real-time updates")
+
+				// Mark handler as healthy
+				if c.newsHandler != nil {
+					c.newsHandler.SetHealthy(true)
+				}
+
+				// Run updates manager - this will block until context is cancelled
+				return c.updatesManager.Run(ctx, c.api, c.telegramUserID, updates.AuthOptions{
+					IsBot: false,
+				})
+			}
+
+			// If no updates manager, keep connection alive
 			<-ctx.Done()
 			return ctx.Err()
 		})
+
+		// Mark handler as unhealthy on disconnect
+		if c.newsHandler != nil {
+			c.newsHandler.SetHealthy(false)
+		}
+
 		// Always send error to channel, even if nil
 		select {
 		case errChan <- err:
@@ -715,6 +781,7 @@ func (c *MTProtoClient) processMessagesSlice(messages []tg.MessageClass, channel
 				Content:     message.Message,
 				MediaURLs:   []string{},
 				Date:        time.Unix(int64(message.Date), 0),
+				GroupedID:   message.GroupedID, // For album grouping
 			}
 
 			// Extract media URLs if present
@@ -742,23 +809,18 @@ func (c *MTProtoClient) processMessagesSlice(messages []tg.MessageClass, channel
 	return newsItems
 }
 
-// extractMediaURLs extracts media URLs from different message media types
+// extractMediaURLs extracts media from different message media types
 //
-// For Telegram-hosted media (photos, videos, documents), returns pseudo-URLs
-// in the format "type://id" or "type://id:filename" since actual downloads
-// require additional file references and access hashes not stored here.
+// For Telegram-hosted media (photos, videos, documents), returns Bot API file_id
+// strings that can be used directly with the Telegram Bot API.
 //
-// Supported URL schemes:
-//   - photo://[id] - Photo media (use ID with Telegram API to download)
-//   - video://[id][:filename] - Video files
-//   - audio://[id][:filename] - Audio files
-//   - document://[id][:filename] - Generic documents
+// For web content, returns HTTP URLs.
+//
+// Supported return formats:
+//   - Bot API file_id (base64 string) - for photos, videos, documents, audio
 //   - http(s)://... - Web URLs from MessageMediaWebPage
 //   - geo:[lat],[long] - Geographic coordinates (RFC 5870 format)
 //   - contact://tel:[phone] - Contact information
-//
-// To download Telegram media, consumers must use the Telegram API with
-// the extracted ID plus the file's access hash and file reference.
 //
 // Returns empty slice if no media is present or media type is unsupported (e.g., polls).
 func (c *MTProtoClient) extractMediaURLs(media tg.MessageMediaClass) []string {
@@ -766,38 +828,23 @@ func (c *MTProtoClient) extractMediaURLs(media tg.MessageMediaClass) []string {
 
 	switch m := media.(type) {
 	case *tg.MessageMediaPhoto:
-		// Extract photo URL
+		// Extract photo and encode as Bot API file_id
 		if photo, ok := m.Photo.(*tg.Photo); ok {
-			// Build a reference URL using photo ID
-			// Note: Actual download would require file reference and access hash
-			photoURL := fmt.Sprintf("photo://%d", photo.ID)
-			urls = append(urls, photoURL)
+			fileID := fileid.EncodePhotoFileID(photo)
+			if fileID != "" {
+				urls = append(urls, fileID)
+			}
 		}
 
 	case *tg.MessageMediaDocument:
-		// Extract document/video/audio URL
+		// Extract document and encode as Bot API file_id
 		if doc, ok := m.Document.(*tg.Document); ok {
-			// Determine document type from attributes
-			docType := "document"
-			var fileName string
-
-			for _, attr := range doc.Attributes {
-				switch a := attr.(type) {
-				case *tg.DocumentAttributeVideo:
-					docType = "video"
-				case *tg.DocumentAttributeAudio:
-					docType = "audio"
-				case *tg.DocumentAttributeFilename:
-					fileName = a.FileName
-				}
+			// Detect document type from attributes
+			fileType := fileid.DetectDocumentType(doc)
+			fileID := fileid.EncodeDocumentFileID(doc, fileType)
+			if fileID != "" {
+				urls = append(urls, fileID)
 			}
-
-			// Build a reference URL
-			docURL := fmt.Sprintf("%s://%d", docType, doc.ID)
-			if fileName != "" {
-				docURL = fmt.Sprintf("%s:%s", docURL, fileName)
-			}
-			urls = append(urls, docURL)
 		}
 
 	case *tg.MessageMediaWebPage:
@@ -809,21 +856,26 @@ func (c *MTProtoClient) extractMediaURLs(media tg.MessageMediaClass) []string {
 			// Also extract photo from webpage if present
 			if webpage.Photo != nil {
 				if photo, ok := webpage.Photo.(*tg.Photo); ok {
-					photoURL := fmt.Sprintf("photo://%d", photo.ID)
-					urls = append(urls, photoURL)
+					fileID := fileid.EncodePhotoFileID(photo)
+					if fileID != "" {
+						urls = append(urls, fileID)
+					}
 				}
 			}
 			// Extract document from webpage if present
 			if webpage.Document != nil {
 				if doc, ok := webpage.Document.(*tg.Document); ok {
-					docURL := fmt.Sprintf("document://%d", doc.ID)
-					urls = append(urls, docURL)
+					fileType := fileid.DetectDocumentType(doc)
+					fileID := fileid.EncodeDocumentFileID(doc, fileType)
+					if fileID != "" {
+						urls = append(urls, fileID)
+					}
 				}
 			}
 		}
 
 	case *tg.MessageMediaGeo:
-		// Extract geo location as URL
+		// Extract geo location as URL (RFC 5870 format)
 		if m.Geo != nil {
 			if geoPoint, ok := m.Geo.(*tg.GeoPoint); ok {
 				geoURL := fmt.Sprintf("geo:%.6f,%.6f", geoPoint.Lat, geoPoint.Long)
@@ -995,6 +1047,30 @@ func (c *MTProtoClient) getFullChannelInfo(ctx context.Context, api *tg.Client, 
 	}
 
 	return nil, fmt.Errorf("unexpected full chat type: %T", fullChan.FullChat)
+}
+
+// SetNewsHandler sets the handler for real-time news updates
+// This must be called before Connect() to enable real-time updates
+func (c *MTProtoClient) SetNewsHandler(handler *handlers.NewsUpdateHandler) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.newsHandler = handler
+	c.logger.Info().Msg("news handler set for real-time updates")
+}
+
+// GetTelegramUserID returns the Telegram user ID for this account
+func (c *MTProtoClient) GetTelegramUserID() int64 {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.telegramUserID
+}
+
+// IsUpdatesHealthy returns true if real-time updates are working
+func (c *MTProtoClient) IsUpdatesHealthy() bool {
+	if c.newsHandler == nil {
+		return false
+	}
+	return c.newsHandler.IsHealthy()
 }
 
 // Ensure MTProtoClient implements domain.TelegramClient interface

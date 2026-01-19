@@ -108,9 +108,9 @@ func (u *UseCase) CollectNews(ctx context.Context) error {
 		// Track the highest message ID for this channel
 		maxMessageID := channel.LastProcessedMessageID
 
-		// Send each news item to Kafka (filter duplicates)
+		// Filter out already processed messages and group albums
+		var newItems []domain.NewsItem
 		for _, news := range newsItems {
-			// Skip already processed messages
 			if news.MessageID <= channel.LastProcessedMessageID {
 				totalSkipped++
 				u.logger.Debug().
@@ -120,7 +120,18 @@ func (u *UseCase) CollectNews(ctx context.Context) error {
 					Msg("Skipping already processed message")
 				continue
 			}
+			newItems = append(newItems, news)
 
+			// Track the highest message ID
+			if news.MessageID > maxMessageID {
+				maxMessageID = news.MessageID
+			}
+		}
+
+		// Group albums and send to Kafka
+		grouped := u.groupAlbums(newItems)
+
+		for _, news := range grouped {
 			kafkaStart := time.Now()
 			if err := u.kafkaProducer.SendNewsReceived(ctx, &news); err != nil {
 				u.logger.Error().Err(err).
@@ -136,14 +147,10 @@ func (u *UseCase) CollectNews(ctx context.Context) error {
 			u.metrics.RecordKafkaMessage(kafkaDuration)
 			totalSent++
 
-			// Track the highest message ID
-			if news.MessageID > maxMessageID {
-				maxMessageID = news.MessageID
-			}
-
 			u.logger.Debug().
 				Str("channel_id", news.ChannelID).
 				Int("message_id", news.MessageID).
+				Int("media_count", len(news.MediaURLs)).
 				Msg("News sent to Kafka")
 		}
 
@@ -176,4 +183,75 @@ func (u *UseCase) CollectNews(ctx context.Context) error {
 	u.metrics.RecordNewsCollection(totalSent, duration)
 
 	return nil
+}
+
+// groupAlbums groups news items with the same GroupedID into single items
+// Items without GroupedID (0) are passed through unchanged
+func (u *UseCase) groupAlbums(items []domain.NewsItem) []domain.NewsItem {
+	if len(items) == 0 {
+		return items
+	}
+
+	// Separate album items from non-album items
+	albums := make(map[int64][]domain.NewsItem)
+	var result []domain.NewsItem
+
+	for _, item := range items {
+		if item.GroupedID == 0 {
+			// Non-album item, add directly to result
+			result = append(result, item)
+		} else {
+			// Album item, group by GroupedID
+			albums[item.GroupedID] = append(albums[item.GroupedID], item)
+		}
+	}
+
+	// Combine album items
+	for groupedID, albumItems := range albums {
+		combined := u.combineAlbumItems(albumItems)
+		u.logger.Debug().
+			Int64("grouped_id", groupedID).
+			Int("items_count", len(albumItems)).
+			Int("media_count", len(combined.MediaURLs)).
+			Msg("Combined album items")
+		result = append(result, combined)
+	}
+
+	return result
+}
+
+// combineAlbumItems merges multiple album items into a single NewsItem
+func (u *UseCase) combineAlbumItems(items []domain.NewsItem) domain.NewsItem {
+	if len(items) == 0 {
+		return domain.NewsItem{}
+	}
+
+	// Use the first item as base
+	result := items[0]
+
+	// Collect all media URLs and find text content
+	var allMediaURLs []string
+	var textContent string
+
+	for _, item := range items {
+		allMediaURLs = append(allMediaURLs, item.MediaURLs...)
+		if item.Content != "" && textContent == "" {
+			textContent = item.Content // Use first non-empty content
+		}
+	}
+
+	result.MediaURLs = allMediaURLs
+	result.Content = textContent
+
+	// Use the lowest message ID (first message in album)
+	for _, item := range items {
+		if item.MessageID < result.MessageID {
+			result.MessageID = item.MessageID
+		}
+		if item.Date.Before(result.Date) {
+			result.Date = item.Date
+		}
+	}
+
+	return result
 }
