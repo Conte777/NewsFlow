@@ -53,6 +53,22 @@ func (a *ProducerAdapter) SendSubscriptionRejected(
 	return a.producer.SendToTopic(ctx, consts.TopicSubscriptionRejected, event.UserID, event)
 }
 
+// SendSubscriptionConfirmed sends subscription.confirmed event to bot-service
+func (a *ProducerAdapter) SendSubscriptionConfirmed(
+	ctx context.Context,
+	telegramUserID int64,
+	channelID, channelName string,
+) error {
+	event := dto.NewConfirmedEvent(
+		dto.EventTypeSubscriptionConfirmed,
+		strconv.FormatInt(telegramUserID, 10),
+		channelID,
+		channelName,
+	)
+
+	return a.producer.SendToTopic(ctx, consts.TopicSubscriptionConfirmed, event.UserID, event)
+}
+
 // Saga: Unsubscription flow
 
 // SendUnsubscriptionPending sends unsubscription.pending event to account-service
@@ -87,6 +103,22 @@ func (a *ProducerAdapter) SendUnsubscriptionRejected(
 	)
 
 	return a.producer.SendToTopic(ctx, consts.TopicUnsubscriptionRejected, event.UserID, event)
+}
+
+// SendUnsubscriptionConfirmed sends unsubscription.confirmed event to bot-service
+func (a *ProducerAdapter) SendUnsubscriptionConfirmed(
+	ctx context.Context,
+	telegramUserID int64,
+	channelID, channelName string,
+) error {
+	event := dto.NewConfirmedEvent(
+		dto.EventTypeUnsubscriptionConfirmed,
+		strconv.FormatInt(telegramUserID, 10),
+		channelID,
+		channelName,
+	)
+
+	return a.producer.SendToTopic(ctx, consts.TopicUnsubscriptionConfirmed, event.UserID, event)
 }
 
 func (a *ProducerAdapter) Close() error {

@@ -40,6 +40,10 @@ type KafkaConfig struct {
 	// Saga: Rejection flow (consumed for user notifications)
 	TopicSubscriptionRejected   string // subscription-service -> bot-service
 	TopicUnsubscriptionRejected string // subscription-service -> bot-service
+
+	// Saga: Confirmation flow (consumed for user notifications)
+	TopicSubscriptionConfirmed   string // subscription-service -> bot-service
+	TopicUnsubscriptionConfirmed string // subscription-service -> bot-service
 }
 
 // LoggingConfig holds logging configuration
@@ -100,6 +104,9 @@ func Load() (*Config, error) {
 			// Saga: Rejection flow
 			TopicSubscriptionRejected:   getEnv("KAFKA_TOPIC_SUBSCRIPTION_REJECTED", "subscription.rejected"),
 			TopicUnsubscriptionRejected: getEnv("KAFKA_TOPIC_UNSUBSCRIPTION_REJECTED", "unsubscription.rejected"),
+			// Saga: Confirmation flow
+			TopicSubscriptionConfirmed:   getEnv("KAFKA_TOPIC_SUBSCRIPTION_CONFIRMED", "subscription.confirmed"),
+			TopicUnsubscriptionConfirmed: getEnv("KAFKA_TOPIC_UNSUBSCRIPTION_CONFIRMED", "unsubscription.confirmed"),
 		},
 		GRPC: GRPCConfig{
 			SubscriptionServiceAddr: getEnv("SUBSCRIPTION_SERVICE_GRPC_ADDR", "localhost:50051"),

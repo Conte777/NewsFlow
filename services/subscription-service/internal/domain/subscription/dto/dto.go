@@ -11,12 +11,16 @@ const (
 	EventTypeSubscriptionFailed    = "subscription_failed"
 	EventTypeSubscriptionRejected  = "subscription_rejected"
 
+	// Saga: Subscription confirmed (to bot-service)
+	EventTypeSubscriptionConfirmed = "subscription_confirmed"
+
 	// Saga: Unsubscription flow
-	EventTypeUnsubscriptionRequested = "unsubscription_requested"
-	EventTypeUnsubscriptionPending   = "unsubscription_pending"
-	EventTypeUnsubscriptionCompleted = "unsubscription_completed"
-	EventTypeUnsubscriptionFailed    = "unsubscription_failed"
-	EventTypeUnsubscriptionRejected  = "unsubscription_rejected"
+	EventTypeUnsubscriptionRequested  = "unsubscription_requested"
+	EventTypeUnsubscriptionPending    = "unsubscription_pending"
+	EventTypeUnsubscriptionCompleted  = "unsubscription_completed"
+	EventTypeUnsubscriptionFailed     = "unsubscription_failed"
+	EventTypeUnsubscriptionRejected   = "unsubscription_rejected"
+	EventTypeUnsubscriptionConfirmed  = "unsubscription_confirmed"
 )
 
 // SubscriptionEvent is the base event structure (legacy + new)
@@ -58,6 +62,15 @@ type RejectedEvent struct {
 	Timestamp   int64  `json:"timestamp,omitempty"`
 }
 
+// ConfirmedEvent is sent to bot-service to notify user about success
+type ConfirmedEvent struct {
+	Type        string `json:"type"`
+	UserID      string `json:"user_id"`
+	ChannelID   string `json:"channel_id"`
+	ChannelName string `json:"channel_name"`
+	Timestamp   int64  `json:"timestamp,omitempty"`
+}
+
 // NewPendingEvent creates a PendingEvent with current timestamp
 func NewPendingEvent(eventType string, subscriptionID uint, userID, channelID, channelName string) *PendingEvent {
 	return &PendingEvent{
@@ -78,6 +91,17 @@ func NewRejectedEvent(eventType string, userID, channelID, channelName, reason s
 		ChannelID:   channelID,
 		ChannelName: channelName,
 		Reason:      reason,
+		Timestamp:   time.Now().Unix(),
+	}
+}
+
+// NewConfirmedEvent creates a ConfirmedEvent with current timestamp
+func NewConfirmedEvent(eventType string, userID, channelID, channelName string) *ConfirmedEvent {
+	return &ConfirmedEvent{
+		Type:        eventType,
+		UserID:      userID,
+		ChannelID:   channelID,
+		ChannelName: channelName,
 		Timestamp:   time.Now().Unix(),
 	}
 }

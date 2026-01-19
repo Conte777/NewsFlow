@@ -26,10 +26,12 @@ type KafkaProducer interface {
 	// Saga: Subscription flow
 	SendSubscriptionPending(ctx context.Context, subscriptionID uint, telegramUserID int64, channelID, channelName string) error
 	SendSubscriptionRejected(ctx context.Context, telegramUserID int64, channelID, channelName, reason string) error
+	SendSubscriptionConfirmed(ctx context.Context, telegramUserID int64, channelID, channelName string) error
 
 	// Saga: Unsubscription flow
 	SendUnsubscriptionPending(ctx context.Context, telegramUserID int64, channelID string) error
 	SendUnsubscriptionRejected(ctx context.Context, telegramUserID int64, channelID, channelName, reason string) error
+	SendUnsubscriptionConfirmed(ctx context.Context, telegramUserID int64, channelID, channelName string) error
 
 	Close() error
 }

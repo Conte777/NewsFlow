@@ -72,13 +72,25 @@ func wireAndRegister(
 		logger.With().Str("component", "rejection-consumer").Logger(),
 	)
 
+	// Create and register confirmation consumer (Saga workflow)
+	// Handlers implements TelegramSender, so we can use it to send confirmation notifications
+	confirmationConsumer := workers.NewConfirmationConsumer(
+		kafkaCfg,
+		handlers,
+		logger.With().Str("component", "confirmation-consumer").Logger(),
+	)
+
 	lc.Append(fx.Hook{
 		OnStart: func(ctx context.Context) error {
 			rejectionConsumer.Start(ctx)
+			confirmationConsumer.Start(ctx)
 			return nil
 		},
 		OnStop: func(ctx context.Context) error {
-			return rejectionConsumer.Stop()
+			if err := rejectionConsumer.Stop(); err != nil {
+				return err
+			}
+			return confirmationConsumer.Stop()
 		},
 	})
 }

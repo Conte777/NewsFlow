@@ -85,3 +85,11 @@ type RejectedEvent struct {
 	ChannelName string `json:"channel_name"`
 	Reason      string `json:"reason"`
 }
+
+// ConfirmedEvent represents a Kafka event for subscription/unsubscription confirmation (Saga)
+type ConfirmedEvent struct {
+	Type        string `json:"type"` // "subscription_confirmed" or "unsubscription_confirmed"
+	UserID      string `json:"user_id"`
+	ChannelID   string `json:"channel_id"`
+	ChannelName string `json:"channel_name"`
+}

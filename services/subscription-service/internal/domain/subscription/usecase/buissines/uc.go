@@ -148,14 +148,35 @@ func (u *UseCase) HandleSubscriptionRequested(ctx context.Context, userID int64,
 	return nil
 }
 
-// HandleSubscriptionActivated updates subscription status to active
+// HandleSubscriptionActivated updates subscription status to active and notifies user
 func (u *UseCase) HandleSubscriptionActivated(ctx context.Context, userID int64, channelID string) error {
+	// Get subscription to retrieve channel name for confirmation event
+	sub, err := u.repo.GetByUserAndChannel(ctx, userID, channelID)
+	if err != nil {
+		u.logger.Error().Err(err).
+			Int64("user_id", userID).
+			Str("channel_id", channelID).
+			Msg("failed to get subscription for activation")
+		return err
+	}
+
+	channelName := sub.ChannelName
+
 	if err := u.repo.UpdateStatus(ctx, userID, channelID, entities.StatusActive); err != nil {
 		u.logger.Error().Err(err).
 			Int64("user_id", userID).
 			Str("channel_id", channelID).
 			Msg("failed to activate subscription")
 		return err
+	}
+
+	// Send confirmation event to bot-service
+	if err := u.kafkaProducer.SendSubscriptionConfirmed(ctx, userID, channelID, channelName); err != nil {
+		u.logger.Error().Err(err).
+			Int64("user_id", userID).
+			Str("channel_id", channelID).
+			Msg("failed to send subscription.confirmed event")
+		// Don't return error - subscription is already activated, just log the failure
 	}
 
 	u.logger.Info().
@@ -236,6 +257,9 @@ func (u *UseCase) HandleUnsubscriptionRequested(ctx context.Context, userID int6
 		return suberrors.ErrSubscriptionNotFound
 	}
 
+	// Save channel name before deletion for confirmation event
+	channelName := existing.ChannelName
+
 	// Delete subscription from DB immediately
 	if err := u.repo.Delete(ctx, userID, channelID); err != nil {
 		u.logger.Error().Err(err).
@@ -243,6 +267,15 @@ func (u *UseCase) HandleUnsubscriptionRequested(ctx context.Context, userID int6
 			Str("channel_id", channelID).
 			Msg("failed to delete subscription")
 		return err
+	}
+
+	// Send confirmation event to bot-service
+	if err := u.kafkaProducer.SendUnsubscriptionConfirmed(ctx, userID, channelID, channelName); err != nil {
+		u.logger.Error().Err(err).
+			Int64("user_id", userID).
+			Str("channel_id", channelID).
+			Msg("failed to send unsubscription.confirmed event")
+		// Don't return error - unsubscription is already completed, just log the failure
 	}
 
 	// Check if there are remaining subscribers for this channel
