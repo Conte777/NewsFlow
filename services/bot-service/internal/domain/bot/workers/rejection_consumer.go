@@ -39,8 +39,9 @@ func NewRejectionConsumer(cfg *config.KafkaConfig, sender deps.TelegramSender, l
 		Brokers:     brokers,
 		GroupID:     cfg.GroupID + "-rejection",
 		GroupTopics: topics,
-		MinBytes:    10e3, // 10KB
+		MinBytes:    1,    // 1 byte - return immediately when message available
 		MaxBytes:    10e6, // 10MB
+		StartOffset: kafka.FirstOffset,
 	})
 
 	logger.Info().

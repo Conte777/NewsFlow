@@ -125,6 +125,9 @@ services:
       DATABASE_SSLMODE: disable
       KAFKA_BROKERS: kafka:9092
       KAFKA_GROUP_ID: subscription-service-group
+      # Saga workflow topics (produced to bot-service)
+      KAFKA_TOPIC_SUBSCRIPTION_CONFIRMED: subscription.confirmed
+      KAFKA_TOPIC_UNSUBSCRIPTION_CONFIRMED: unsubscription.confirmed
       SERVICE_NAME: subscription-service
       SERVICE_PORT: "8082"
       GRPC_PORT: "50051"
@@ -186,6 +189,9 @@ services:
     environment:
       KAFKA_BROKERS: kafka:9092
       KAFKA_GROUP_ID: bot-service-group
+      # Saga workflow topics (consumed)
+      KAFKA_TOPIC_SUBSCRIPTION_CONFIRMED: subscription.confirmed
+      KAFKA_TOPIC_UNSUBSCRIPTION_CONFIRMED: unsubscription.confirmed
       SUBSCRIPTION_SERVICE_GRPC_ADDR: subscription-service:50051
       SERVICE_NAME: bot-service
       SERVICE_PORT: "8081"

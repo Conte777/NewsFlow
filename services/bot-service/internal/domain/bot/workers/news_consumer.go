@@ -30,7 +30,7 @@ func NewNewsConsumer(cfg *config.KafkaConfig, handlers *kafkaHandlers.Handlers, 
 		Brokers:  brokers,
 		GroupID:  cfg.GroupID,
 		Topic:    "news.deliver",
-		MinBytes: 10e3, // 10KB
+		MinBytes: 1,    // 1 byte - return immediately when message available
 		MaxBytes: 10e6, // 10MB
 	})
 
