@@ -41,7 +41,6 @@ type Subscription struct {
 	ID        uint               `gorm:"primaryKey"`
 	UserID    uint               `gorm:"not null;index"`
 	ChannelID uint               `gorm:"not null;index"`
-	IsActive  bool               `gorm:"not null;default:true"`
 	Status    SubscriptionStatus `gorm:"type:varchar(20);default:active;index"`
 	CreatedAt time.Time          `gorm:"autoCreateTime"`
 	UpdatedAt time.Time          `gorm:"autoUpdateTime"`
@@ -59,7 +58,6 @@ type SubscriptionView struct {
 	TelegramID  int64
 	ChannelID   string
 	ChannelName string
-	IsActive    bool
 	Status      SubscriptionStatus
 	CreatedAt   time.Time
 	UpdatedAt   time.Time

@@ -19,6 +19,7 @@ type SubscriptionRepository interface {
 	CreateWithStatus(ctx context.Context, telegramUserID int64, channelID, channelName string, status entities.SubscriptionStatus) (*entities.SubscriptionView, error)
 	UpdateStatus(ctx context.Context, telegramUserID int64, channelID string, status entities.SubscriptionStatus) error
 	GetByUserAndChannel(ctx context.Context, telegramUserID int64, channelID string) (*entities.SubscriptionView, error)
+	DeleteOrphanedChannel(ctx context.Context, channelID string) error
 }
 
 type KafkaProducer interface {

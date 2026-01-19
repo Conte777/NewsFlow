@@ -2,6 +2,7 @@ package kafka
 
 import (
 	"context"
+	"time"
 
 	"github.com/rs/zerolog"
 	"github.com/segmentio/kafka-go"
@@ -11,7 +12,7 @@ import (
 )
 
 const (
-	minBytes = 10e3  // 10KB
+	minBytes = 1     // 1 byte - читать сообщения сразу
 	maxBytes = 10e6  // 10MB
 )
 
@@ -29,6 +30,7 @@ func NewConsumer(cfg *config.KafkaConfig, handlers *kafkaHandlers.Handlers, logg
 		GroupID:  cfg.GroupID,
 		MinBytes: minBytes,
 		MaxBytes: maxBytes,
+		MaxWait:  3 * time.Second,
 	})
 
 	logger.Info().

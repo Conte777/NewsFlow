@@ -256,6 +256,13 @@ func (u *UseCase) HandleUnsubscriptionRequested(ctx context.Context, userID int6
 
 	// Only send unsubscription.pending if no other subscribers remain
 	if len(subscribers) == 0 {
+		// Delete orphaned channel from DB
+		if err := u.repo.DeleteOrphanedChannel(ctx, channelID); err != nil {
+			u.logger.Warn().Err(err).Str("channel_id", channelID).Msg("failed to delete orphaned channel")
+		} else {
+			u.logger.Info().Str("channel_id", channelID).Msg("orphaned channel deleted from DB")
+		}
+
 		if err := u.kafkaProducer.SendUnsubscriptionPending(ctx, userID, channelID); err != nil {
 			u.logger.Error().Err(err).
 				Int64("user_id", userID).

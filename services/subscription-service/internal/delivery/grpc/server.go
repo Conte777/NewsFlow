@@ -45,7 +45,7 @@ func (s *Server) GetUserSubscriptions(ctx context.Context, req *pb.GetUserSubscr
 			UserId:      sub.TelegramID,
 			ChannelId:   sub.ChannelID,
 			ChannelName: sub.ChannelName,
-			IsActive:    sub.IsActive,
+			IsActive:    sub.Status == "active",
 		}
 	}
 

@@ -73,7 +73,6 @@ func (r *Repository) Create(ctx context.Context, telegramUserID int64, channelID
 		subscription := entities.Subscription{
 			UserID:    user.ID,
 			ChannelID: channel.ID,
-			IsActive:  true,
 			Status:    entities.StatusActive,
 		}
 
@@ -106,7 +105,6 @@ func (r *Repository) CreateWithStatus(ctx context.Context, telegramUserID int64,
 		subscription := entities.Subscription{
 			UserID:    user.ID,
 			ChannelID: channel.ID,
-			IsActive:  status == entities.StatusActive,
 			Status:    status,
 		}
 
@@ -123,7 +121,6 @@ func (r *Repository) CreateWithStatus(ctx context.Context, telegramUserID int64,
 			TelegramID:  telegramUserID,
 			ChannelID:   channelID,
 			ChannelName: channelName,
-			IsActive:    subscription.IsActive,
 			Status:      subscription.Status,
 			CreatedAt:   subscription.CreatedAt,
 			UpdatedAt:   subscription.UpdatedAt,
@@ -139,10 +136,10 @@ func (r *Repository) CreateWithStatus(ctx context.Context, telegramUserID int64,
 func (r *Repository) UpdateStatus(ctx context.Context, telegramUserID int64, channelID string, status entities.SubscriptionStatus) error {
 	result := r.db.WithContext(ctx).Exec(`
 		UPDATE subscriptions
-		SET status = ?, is_active = ?, updated_at = NOW()
+		SET status = ?, updated_at = NOW()
 		WHERE user_id = (SELECT id FROM users WHERE telegram_id = ?)
 		AND channel_id = (SELECT id FROM channels WHERE channel_id = ?)
-	`, status, status == entities.StatusActive, telegramUserID, channelID)
+	`, status, telegramUserID, channelID)
 
 	if result.Error != nil {
 		return suberrors.ErrDatabaseOperation
@@ -165,7 +162,6 @@ func (r *Repository) GetByUserAndChannel(ctx context.Context, telegramUserID int
 			u.telegram_id,
 			c.channel_id,
 			c.channel_name,
-			s.is_active,
 			s.status,
 			s.created_at,
 			s.updated_at
@@ -213,13 +209,13 @@ func (r *Repository) GetByUserID(ctx context.Context, telegramUserID int64) ([]e
 			u.telegram_id,
 			c.channel_id,
 			c.channel_name,
-			s.is_active,
+			s.status,
 			s.created_at,
 			s.updated_at
 		FROM subscriptions s
 		INNER JOIN users u ON s.user_id = u.id
 		INNER JOIN channels c ON s.channel_id = c.id
-		WHERE u.telegram_id = ? AND s.is_active = true
+		WHERE u.telegram_id = ? AND s.status = 'active'
 		ORDER BY s.created_at DESC
 	`, telegramUserID).Scan(&views)
 
@@ -239,13 +235,13 @@ func (r *Repository) GetByChannelID(ctx context.Context, channelID string) ([]en
 			u.telegram_id,
 			c.channel_id,
 			c.channel_name,
-			s.is_active,
+			s.status,
 			s.created_at,
 			s.updated_at
 		FROM subscriptions s
 		INNER JOIN users u ON s.user_id = u.id
 		INNER JOIN channels c ON s.channel_id = c.id
-		WHERE c.channel_id = ? AND s.is_active = true
+		WHERE c.channel_id = ? AND s.status = 'active'
 	`, channelID).Scan(&views)
 
 	if result.Error != nil {
@@ -262,7 +258,7 @@ func (r *Repository) Exists(ctx context.Context, telegramUserID int64, channelID
 		SELECT COUNT(*) FROM subscriptions s
 		INNER JOIN users u ON s.user_id = u.id
 		INNER JOIN channels c ON s.channel_id = c.id
-		WHERE u.telegram_id = ? AND c.channel_id = ? AND s.is_active = true
+		WHERE u.telegram_id = ? AND c.channel_id = ? AND s.status = 'active'
 	`, telegramUserID, channelID).Scan(&count)
 
 	if result.Error != nil {
@@ -279,7 +275,7 @@ func (r *Repository) GetActiveChannels(ctx context.Context) ([]string, error) {
 		SELECT DISTINCT c.channel_id
 		FROM subscriptions s
 		INNER JOIN channels c ON s.channel_id = c.id
-		WHERE s.is_active = true
+		WHERE s.status = 'active'
 	`).Scan(&channels)
 
 	if result.Error != nil {
@@ -287,4 +283,22 @@ func (r *Repository) GetActiveChannels(ctx context.Context) ([]string, error) {
 	}
 
 	return channels, nil
+}
+
+func (r *Repository) DeleteOrphanedChannel(ctx context.Context, channelID string) error {
+	result := r.db.WithContext(ctx).Exec(`
+		DELETE FROM channels
+		WHERE channel_id = ?
+		AND NOT EXISTS (
+			SELECT 1 FROM subscriptions s
+			INNER JOIN channels c ON s.channel_id = c.id
+			WHERE c.channel_id = ?
+		)
+	`, channelID, channelID)
+
+	if result.Error != nil {
+		return suberrors.ErrDatabaseOperation
+	}
+
+	return nil
 }

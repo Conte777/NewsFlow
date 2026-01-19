@@ -73,8 +73,13 @@ services:
       KAFKA_BROKERS: kafka:9092
       KAFKA_GROUP_ID: account-service-group
       KAFKA_TOPIC_NEWS_RECEIVED: news.received
-      KAFKA_TOPIC_SUBSCRIPTIONS_CREATED: subscriptions.created
-      KAFKA_TOPIC_SUBSCRIPTIONS_DELETED: subscriptions.deleted
+      # Saga workflow topics
+      KAFKA_TOPIC_SUBSCRIPTION_PENDING: subscription.pending
+      KAFKA_TOPIC_SUBSCRIPTION_ACTIVATED: subscription.activated
+      KAFKA_TOPIC_SUBSCRIPTION_FAILED: subscription.failed
+      KAFKA_TOPIC_UNSUBSCRIPTION_PENDING: unsubscription.pending
+      KAFKA_TOPIC_UNSUBSCRIPTION_COMPLETED: unsubscription.completed
+      KAFKA_TOPIC_UNSUBSCRIPTION_FAILED: unsubscription.failed
 
       # Service Configuration
       SERVICE_NAME: account-service
@@ -86,7 +91,7 @@ services:
       NEWS_COLLECTION_TIMEOUT: ${NEWS_COLLECTION_TIMEOUT:-5m}
 
       # Logging
-      LOG_LEVEL: ${LOG_LEVEL:-info}
+      LOG_LEVEL: ${LOG_LEVEL:-debug}
     volumes:
       # Persistent storage for Telegram sessions
       - account-sessions:/app/sessions
@@ -123,7 +128,7 @@ services:
       SERVICE_NAME: subscription-service
       SERVICE_PORT: "8082"
       GRPC_PORT: "50051"
-      LOG_LEVEL: ${LOG_LEVEL:-info}
+      LOG_LEVEL: ${LOG_LEVEL:-debug}
     networks:
       - telegram-news-network
     restart: unless-stopped
@@ -156,7 +161,7 @@ services:
       SERVICE_NAME: news-service
       SERVICE_PORT: "8083"
       SUBSCRIPTION_SERVICE_URL: http://subscription-service:8082
-      LOG_LEVEL: ${LOG_LEVEL:-info}
+      LOG_LEVEL: ${LOG_LEVEL:-debug}
     networks:
       - telegram-news-network
     restart: unless-stopped
@@ -184,7 +189,7 @@ services:
       SUBSCRIPTION_SERVICE_GRPC_ADDR: subscription-service:50051
       SERVICE_NAME: bot-service
       SERVICE_PORT: "8081"
-      LOG_LEVEL: ${LOG_LEVEL:-info}
+      LOG_LEVEL: ${LOG_LEVEL:-debug}
     networks:
       - telegram-news-network
     restart: unless-stopped
