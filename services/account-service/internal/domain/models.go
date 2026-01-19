@@ -15,7 +15,6 @@ type ChannelSubscription struct {
 	AccountID              string
 	ChannelID              string
 	ChannelName            string
-	IsActive               bool
 	LastProcessedMessageID int       // Last message ID that was processed to avoid duplicates
 	CreatedAt              time.Time
 }

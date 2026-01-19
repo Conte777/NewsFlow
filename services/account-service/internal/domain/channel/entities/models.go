@@ -12,7 +12,6 @@ type AccountChannelModel struct {
 	ChannelID              string    `gorm:"not null;size:255;uniqueIndex:uq_account_channel;index"`
 	ChannelName            string    `gorm:"size:255;default:''"`
 	LastProcessedMessageID int       `gorm:"not null;default:0"`
-	IsActive               bool      `gorm:"not null;default:true;index"`
 	CreatedAt              time.Time `gorm:"autoCreateTime"`
 	UpdatedAt              time.Time `gorm:"autoUpdateTime"`
 }
@@ -27,7 +26,6 @@ func (m *AccountChannelModel) ToEntity() *ChannelSubscription {
 		AccountID:              fmt.Sprintf("%d", m.AccountID),
 		ChannelID:              m.ChannelID,
 		ChannelName:            m.ChannelName,
-		IsActive:               m.IsActive,
 		LastProcessedMessageID: m.LastProcessedMessageID,
 		CreatedAt:              m.CreatedAt,
 	}

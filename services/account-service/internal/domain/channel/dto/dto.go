@@ -23,7 +23,6 @@ type UnsubscribeRequest struct {
 type ChannelResponse struct {
 	ChannelID   string `json:"channelId"`
 	ChannelName string `json:"channelName"`
-	IsActive    bool   `json:"isActive"`
 }
 
 // GetChannelsResponse represents get channels response

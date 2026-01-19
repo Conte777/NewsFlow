@@ -9,6 +9,7 @@ import (
 	"github.com/Conte777/NewsFlow/services/account-service/internal/domain/channel/entities"
 	channelerrors "github.com/Conte777/NewsFlow/services/account-service/internal/domain/channel/errors"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 // Repository implements deps.ChannelRepository using PostgreSQL
@@ -35,26 +36,26 @@ func (r *Repository) AddChannelForAccount(ctx context.Context, phoneNumber, chan
 		AccountID:   account.ID,
 		ChannelID:   channelID,
 		ChannelName: channelName,
-		IsActive:    true,
 	}
 
-	result := r.db.WithContext(ctx).Create(model)
+	result := r.db.WithContext(ctx).
+		Clauses(clause.OnConflict{
+			Columns:   []clause.Column{{Name: "account_id"}, {Name: "channel_id"}},
+			DoUpdates: clause.AssignmentColumns([]string{"channel_name", "updated_at"}),
+		}).
+		Create(model)
 	if result.Error != nil {
-		if errors.Is(result.Error, gorm.ErrDuplicatedKey) {
-			return nil // Already exists
-		}
 		return fmt.Errorf("failed to add channel for account: %w", result.Error)
 	}
 
 	return nil
 }
 
-// RemoveChannel removes a channel subscription (marks as inactive)
+// RemoveChannel removes a channel subscription
 func (r *Repository) RemoveChannel(ctx context.Context, channelID string) error {
 	result := r.db.WithContext(ctx).
-		Model(&entities.AccountChannelModel{}).
-		Where("channel_id = ? AND is_active = ?", channelID, true).
-		Update("is_active", false)
+		Where("channel_id = ?", channelID).
+		Delete(&entities.AccountChannelModel{})
 
 	if result.Error != nil {
 		return fmt.Errorf("failed to remove channel: %w", result.Error)
@@ -78,9 +79,8 @@ func (r *Repository) RemoveChannelForAccount(ctx context.Context, phoneNumber, c
 	}
 
 	result := r.db.WithContext(ctx).
-		Model(&entities.AccountChannelModel{}).
-		Where("account_id = ? AND channel_id = ? AND is_active = ?", account.ID, channelID, true).
-		Update("is_active", false)
+		Where("account_id = ? AND channel_id = ?", account.ID, channelID).
+		Delete(&entities.AccountChannelModel{})
 
 	if result.Error != nil {
 		return fmt.Errorf("failed to remove channel for account: %w", result.Error)
@@ -93,11 +93,10 @@ func (r *Repository) RemoveChannelForAccount(ctx context.Context, phoneNumber, c
 	return nil
 }
 
-// GetAllChannels retrieves all active channel subscriptions
+// GetAllChannels retrieves all channel subscriptions
 func (r *Repository) GetAllChannels(ctx context.Context) ([]entities.ChannelSubscription, error) {
 	var models []entities.AccountChannelModel
 	if err := r.db.WithContext(ctx).
-		Where("is_active = ?", true).
 		Find(&models).Error; err != nil {
 		return nil, fmt.Errorf("failed to get all channels: %w", err)
 	}
@@ -114,7 +113,7 @@ func (r *Repository) GetAllChannels(ctx context.Context) ([]entities.ChannelSubs
 func (r *Repository) GetChannel(ctx context.Context, channelID string) (*entities.ChannelSubscription, error) {
 	var model entities.AccountChannelModel
 	if err := r.db.WithContext(ctx).
-		Where("channel_id = ? AND is_active = ?", channelID, true).
+		Where("channel_id = ?", channelID).
 		First(&model).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, channelerrors.ErrChannelNotFound
@@ -125,12 +124,12 @@ func (r *Repository) GetChannel(ctx context.Context, channelID string) (*entitie
 	return model.ToEntity(), nil
 }
 
-// ChannelExists checks if an active subscription exists for the channel (by any account)
+// ChannelExists checks if a subscription exists for the channel (by any account)
 func (r *Repository) ChannelExists(ctx context.Context, channelID string) (bool, error) {
 	var count int64
 	if err := r.db.WithContext(ctx).
 		Model(&entities.AccountChannelModel{}).
-		Where("channel_id = ? AND is_active = ?", channelID, true).
+		Where("channel_id = ?", channelID).
 		Count(&count).Error; err != nil {
 		return false, fmt.Errorf("failed to check channel existence: %w", err)
 	}
@@ -142,7 +141,7 @@ func (r *Repository) ChannelExists(ctx context.Context, channelID string) (bool,
 func (r *Repository) UpdateLastProcessedMessageID(ctx context.Context, channelID string, messageID int) error {
 	result := r.db.WithContext(ctx).
 		Model(&entities.AccountChannelModel{}).
-		Where("channel_id = ? AND is_active = ?", channelID, true).
+		Where("channel_id = ?", channelID).
 		Update("last_processed_message_id", messageID)
 
 	if result.Error != nil {
@@ -168,7 +167,7 @@ func (r *Repository) GetChannelsByAccount(ctx context.Context, phoneNumber strin
 
 	var models []entities.AccountChannelModel
 	if err := r.db.WithContext(ctx).
-		Where("account_id = ? AND is_active = ?", account.ID, true).
+		Where("account_id = ?", account.ID).
 		Find(&models).Error; err != nil {
 		return nil, fmt.Errorf("failed to get channels by account: %w", err)
 	}
@@ -185,7 +184,7 @@ func (r *Repository) GetChannelsByAccount(ctx context.Context, phoneNumber strin
 func (r *Repository) GetAccountPhoneForChannel(ctx context.Context, channelID string) (string, error) {
 	var model entities.AccountChannelModel
 	if err := r.db.WithContext(ctx).
-		Where("channel_id = ? AND is_active = ?", channelID, true).
+		Where("channel_id = ?", channelID).
 		First(&model).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return "", channelerrors.ErrChannelNotFound
