@@ -3,7 +3,7 @@ package deps
 import (
 	"context"
 
-	"github.com/Conte777/NewsFlow/services/account-service/internal/domain/account/entities"
+	"github.com/Conte777/NewsFlow/services/account-service/internal/domain"
 )
 
 // TelegramClient defines interface for Telegram MTProto operations
@@ -25,7 +25,7 @@ type AccountManager interface {
 	GetAllAccounts() []TelegramClient
 	AddAccount(client TelegramClient) error
 	RemoveAccount(accountID string) error
-	InitializeAccounts(ctx context.Context, cfg entities.AccountInitConfig) *entities.InitializationReport
+	InitializeAccounts(ctx context.Context, cfg domain.AccountInitConfig) *domain.InitializationReport
 	Shutdown(ctx context.Context) int
 	GetActiveAccountCount() int
 }

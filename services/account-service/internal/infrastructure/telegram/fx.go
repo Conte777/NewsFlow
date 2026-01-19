@@ -31,12 +31,10 @@ func NewAccountManagerFx(
 	logger zerolog.Logger,
 ) (domain.AccountManager, error) {
 	manager := NewAccountManager().(*accountManager)
-	manager.WithLogger(logger)
+	manager.WithLogger(logger).WithDB(db)
 
 	// Set client factory to use PostgreSQL session storage
-	manager.clientFactory = func(cfg MTProtoClientConfig) (domain.TelegramClient, error) {
-		return NewMTProtoClientWithDB(cfg, db)
-	}
+	manager.clientFactory = NewMTProtoClient
 
 	// Channel to stop the sync goroutine
 	stopSync := make(chan struct{})
@@ -58,7 +56,6 @@ func NewAccountManagerFx(
 			report := manager.InitializeAccounts(ctx, domain.AccountInitConfig{
 				APIID:         telegramCfg.APIID,
 				APIHash:       telegramCfg.APIHash,
-				SessionDir:    telegramCfg.SessionDir,
 				Accounts:      phoneNumbers,
 				Logger:        logger,
 				MaxConcurrent: 10,
@@ -143,7 +140,6 @@ func syncAccounts(
 	report := manager.SyncAccounts(ctx, domain.AccountInitConfig{
 		APIID:         cfg.APIID,
 		APIHash:       cfg.APIHash,
-		SessionDir:    cfg.SessionDir,
 		Accounts:      phoneNumbers,
 		Logger:        logger,
 		MaxConcurrent: 10,

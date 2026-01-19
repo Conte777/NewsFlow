@@ -341,17 +341,17 @@ func (m *QRAuthManager) finalizeAuth(ctx context.Context, session *InternalQRSes
 		Logger:      m.logger,
 	}
 
-	newClient, err := NewMTProtoClientWithDB(clientCfg, m.db)
+	newClient, err := NewMTProtoClient(clientCfg, m.db)
 	if err != nil {
 		session.SetError(err)
 		return fmt.Errorf("create client: %w", err)
 	}
 
 	// Copy session data from temp storage to persistent storage
-	if newClient.postgresStorage != nil {
+	if mtprotoClient, ok := newClient.(*MTProtoClient); ok && mtprotoClient.postgresStorage != nil {
 		sessionData, err := tempStorage.LoadSession(ctx)
 		if err == nil && sessionData != nil {
-			if err := newClient.postgresStorage.StoreSession(ctx, sessionData); err != nil {
+			if err := mtprotoClient.postgresStorage.StoreSession(ctx, sessionData); err != nil {
 				m.logger.Warn().Err(err).Msg("failed to store session data")
 			}
 		}
@@ -372,8 +372,8 @@ func (m *QRAuthManager) finalizeAuth(ctx context.Context, session *InternalQRSes
 
 	// Get account ID
 	var accountID *uint
-	if newClient.postgresStorage != nil {
-		id := newClient.postgresStorage.GetAccountID()
+	if mtprotoClient, ok := newClient.(*MTProtoClient); ok && mtprotoClient.postgresStorage != nil {
+		id := mtprotoClient.postgresStorage.GetAccountID()
 		accountID = &id
 	}
 

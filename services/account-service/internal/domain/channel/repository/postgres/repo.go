@@ -21,26 +21,6 @@ func NewRepository(db *gorm.DB) deps.ChannelRepository {
 	return &Repository{db: db}
 }
 
-// AddChannel adds a channel subscription (without account binding - legacy support)
-func (r *Repository) AddChannel(ctx context.Context, channelID, channelName string) error {
-	model := &entities.AccountChannelModel{
-		AccountID:   0, // No account binding for legacy method
-		ChannelID:   channelID,
-		ChannelName: channelName,
-		IsActive:    true,
-	}
-
-	result := r.db.WithContext(ctx).Create(model)
-	if result.Error != nil {
-		if errors.Is(result.Error, gorm.ErrDuplicatedKey) {
-			return nil // Already exists
-		}
-		return fmt.Errorf("failed to add channel: %w", result.Error)
-	}
-
-	return nil
-}
-
 // AddChannelForAccount adds a channel subscription with account binding
 func (r *Repository) AddChannelForAccount(ctx context.Context, phoneNumber, channelID, channelName string) error {
 	var account entities.AccountModel

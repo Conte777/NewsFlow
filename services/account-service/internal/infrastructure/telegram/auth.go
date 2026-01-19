@@ -128,9 +128,11 @@ func (c *MTProtoClient) authenticateWithRetry(ctx context.Context, maxRetries in
 		// Check if it's a session revoked error
 		if tgerr.Is(err, "SESSION_REVOKED") {
 			c.logger.Error().Msg("session has been revoked, need to re-authenticate")
-			// Delete old session
-			if err := c.sessionStorage.DeleteSession(); err != nil {
-				c.logger.Warn().Err(err).Msg("failed to delete revoked session")
+			// Delete old session (only PostgreSQL storage supports deletion)
+			if c.postgresStorage != nil {
+				if err := c.postgresStorage.DeleteSession(ctx); err != nil {
+					c.logger.Warn().Err(err).Msg("failed to delete revoked session")
+				}
 			}
 			// Try again with fresh session
 			continue

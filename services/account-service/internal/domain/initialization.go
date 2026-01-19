@@ -42,9 +42,6 @@ type AccountInitConfig struct {
 	// APIHash is the Telegram API application hash
 	APIHash string
 
-	// SessionDir is the directory where session files are stored
-	SessionDir string
-
 	// Accounts is the list of phone numbers to initialize
 	// Phone numbers should be in international format (e.g., "+1234567890")
 	Accounts []string

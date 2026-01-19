@@ -8,8 +8,6 @@ import (
 
 // ChannelRepository defines interface for channel subscription storage
 type ChannelRepository interface {
-	// Existing methods (for backward compatibility)
-	AddChannel(ctx context.Context, channelID, channelName string) error
 	RemoveChannel(ctx context.Context, channelID string) error
 	GetAllChannels(ctx context.Context) ([]entities.ChannelSubscription, error)
 	GetChannel(ctx context.Context, channelID string) (*entities.ChannelSubscription, error)

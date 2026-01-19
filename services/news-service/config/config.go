@@ -31,8 +31,9 @@ type DatabaseConfig struct {
 
 // KafkaConfig holds Kafka configuration
 type KafkaConfig struct {
-	Brokers []string
-	GroupID string
+	Brokers           []string
+	GroupID           string
+	TopicNewsReceived string
 }
 
 // LoggingConfig holds logging configuration
@@ -94,8 +95,9 @@ func Load() (*Config, error) {
 			SSLMode:  getEnv("DATABASE_SSLMODE", "disable"),
 		},
 		Kafka: KafkaConfig{
-			Brokers: strings.Split(getEnv("KAFKA_BROKERS", "localhost:9093"), ","),
-			GroupID: getEnv("KAFKA_GROUP_ID", "news-service-group"),
+			Brokers:           strings.Split(getEnv("KAFKA_BROKERS", "localhost:9093"), ","),
+			GroupID:           getEnv("KAFKA_GROUP_ID", "news-service-group"),
+			TopicNewsReceived: getEnv("KAFKA_TOPIC_NEWS_RECEIVED", "news.received"),
 		},
 		Logging: LoggingConfig{
 			Level: getEnv("LOG_LEVEL", "info"),

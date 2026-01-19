@@ -41,18 +41,15 @@ func (c *DatabaseConfig) GetDSN() string {
 type TelegramConfig struct {
 	APIID               int
 	APIHash             string
-	SessionDir          string
 	AccountSyncInterval time.Duration // Interval for checking new accounts in DB
 	MinRequiredAccounts int           // Minimum number of accounts required to start service
 }
 
 // KafkaConfig holds Kafka configuration
 type KafkaConfig struct {
-	Brokers                   []string
-	GroupID                   string
-	TopicNewsReceived         string // Topic for publishing collected news
-	TopicSubscriptionsCreated string // Topic for subscription created events (legacy)
-	TopicSubscriptionsDeleted string // Topic for subscription deleted events (legacy)
+	Brokers           []string
+	GroupID           string
+	TopicNewsReceived string // Topic for publishing collected news
 
 	// Saga: Subscription flow (consumed)
 	TopicSubscriptionPending string // subscription.pending -> account-service
@@ -136,16 +133,13 @@ func Load() (*Config, error) {
 		Telegram: TelegramConfig{
 			APIID:               apiID,
 			APIHash:             getEnv("TELEGRAM_API_HASH", ""),
-			SessionDir:          getEnv("TELEGRAM_SESSION_DIR", "./sessions"),
 			AccountSyncInterval: accountSyncInterval,
 			MinRequiredAccounts: minRequiredAccounts,
 		},
 		Kafka: KafkaConfig{
-			Brokers:                   strings.Split(getEnv("KAFKA_BROKERS", "localhost:9093"), ","),
-			GroupID:                   getEnv("KAFKA_GROUP_ID", "account-service-group"),
-			TopicNewsReceived:         getEnv("KAFKA_TOPIC_NEWS_RECEIVED", "news.received"),
-			TopicSubscriptionsCreated: getEnv("KAFKA_TOPIC_SUBSCRIPTIONS_CREATED", "subscriptions.created"),
-			TopicSubscriptionsDeleted: getEnv("KAFKA_TOPIC_SUBSCRIPTIONS_DELETED", "subscriptions.deleted"),
+			Brokers:           strings.Split(getEnv("KAFKA_BROKERS", "localhost:9093"), ","),
+			GroupID:           getEnv("KAFKA_GROUP_ID", "account-service-group"),
+			TopicNewsReceived: getEnv("KAFKA_TOPIC_NEWS_RECEIVED", "news.received"),
 			// Saga: Subscription flow
 			TopicSubscriptionPending:   getEnv("KAFKA_TOPIC_SUBSCRIPTION_PENDING", "subscription.pending"),
 			TopicSubscriptionActivated: getEnv("KAFKA_TOPIC_SUBSCRIPTION_ACTIVATED", "subscription.activated"),

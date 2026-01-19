@@ -72,9 +72,6 @@ type AccountManager interface {
 	// Returns a report about newly initialized accounts.
 	SyncAccounts(ctx context.Context, cfg AccountInitConfig) *InitializationReport
 
-	// GetManagedPhoneNumbers returns a list of phone numbers currently managed by the manager
-	GetManagedPhoneNumbers() []string
-
 	// Shutdown gracefully disconnects all managed accounts
 	// It disconnects accounts sequentially with proper error handling.
 	// The context should have a timeout (recommended 30 seconds).
@@ -87,9 +84,6 @@ type AccountManager interface {
 
 // ChannelRepository defines interface for channel subscription storage
 type ChannelRepository interface {
-	// AddChannel adds a channel subscription
-	AddChannel(ctx context.Context, channelID, channelName string) error
-
 	// RemoveChannel removes a channel subscription
 	RemoveChannel(ctx context.Context, channelID string) error
 

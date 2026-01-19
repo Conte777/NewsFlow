@@ -16,7 +16,7 @@ func CreateApp() fx.Option {
 		fx.Provide(config.Out),
 		fx.Provide(logger.NewLogger),
 		fx.Provide(database.NewPostgresDB),
-		fx.Provide(kafka.NewProducer),
+		kafka.Module,
 		domain.Module,
 	)
 }

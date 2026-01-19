@@ -1,11 +1,6 @@
 package consts
 
 const (
-	// Legacy topics (for backward compatibility during migration)
-	TopicSubscriptionCreated   = "subscription.created"
-	TopicSubscriptionCancelled = "subscription.cancelled"
-	TopicSubscriptionUpdated   = "subscription.updated"
-
 	// Saga: Subscription flow
 	TopicSubscriptionRequested = "subscription.requested" // bot -> subscription-service
 	TopicSubscriptionPending   = "subscription.pending"   // subscription-service -> account-service
@@ -23,10 +18,6 @@ const (
 
 // ConsumerTopics lists all topics subscription-service consumes
 var ConsumerTopics = []string{
-	// Legacy topics
-	TopicSubscriptionCreated,
-	TopicSubscriptionCancelled,
-	TopicSubscriptionUpdated,
 	// Saga: subscription flow
 	TopicSubscriptionRequested,
 	TopicSubscriptionActivated,

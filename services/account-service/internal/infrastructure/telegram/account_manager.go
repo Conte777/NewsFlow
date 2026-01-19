@@ -8,12 +8,13 @@ import (
 	"time"
 
 	"github.com/rs/zerolog"
+	"gorm.io/gorm"
 
 	"github.com/Conte777/NewsFlow/services/account-service/internal/domain"
 )
 
-// ClientFactory is a function type for creating Telegram clients
-type ClientFactory func(cfg MTProtoClientConfig) (domain.TelegramClient, error)
+// ClientFactory is a function type for creating Telegram clients with database connection
+type ClientFactory func(cfg MTProtoClientConfig, db *gorm.DB) (domain.TelegramClient, error)
 
 // accountManager manages a pool of Telegram MTProto accounts
 type accountManager struct {
@@ -22,8 +23,11 @@ type accountManager struct {
 	mu         sync.RWMutex
 	currentIdx atomic.Int32 // current index for round-robin load balancing
 
-	// clientFactory is used to create new clients (can be overridden for testing)
+	// clientFactory is used to create new clients (must be set via fx.go)
 	clientFactory ClientFactory
+
+	// db is database connection for session storage
+	db *gorm.DB
 
 	// logger is used for logging shutdown process and errors
 	// If not set, uses zerolog.Nop()
@@ -36,10 +40,9 @@ type accountManager struct {
 // NewAccountManager creates a new account manager
 func NewAccountManager() domain.AccountManager {
 	return &accountManager{
-		accounts:      make(map[string]domain.TelegramClient),
-		accountIDs:    make([]string, 0),
-		clientFactory: defaultClientFactory,
-		logger:        zerolog.Nop(), // Default to no-op logger
+		accounts:   make(map[string]domain.TelegramClient),
+		accountIDs: make([]string, 0),
+		logger:     zerolog.Nop(),
 	}
 }
 
@@ -49,9 +52,10 @@ func (m *accountManager) WithLogger(logger zerolog.Logger) *accountManager {
 	return m
 }
 
-// defaultClientFactory is the default factory that creates real MTProtoClient instances
-func defaultClientFactory(cfg MTProtoClientConfig) (domain.TelegramClient, error) {
-	return NewMTProtoClient(cfg)
+// WithDB sets the database connection for session storage
+func (m *accountManager) WithDB(db *gorm.DB) *accountManager {
+	m.db = db
+	return m
 }
 
 // InitializeAccounts loads and initializes Telegram accounts from configuration
@@ -139,9 +143,8 @@ func (m *accountManager) InitializeAccounts(ctx context.Context, cfg domain.Acco
 				APIID:       cfg.APIID,
 				APIHash:     cfg.APIHash,
 				PhoneNumber: phone,
-				SessionDir:  cfg.SessionDir,
 				Logger:      logger,
-			})
+			}, m.db)
 
 			if err != nil {
 				logger.Warn().Err(err).Msg("Failed to create MTProto client")
@@ -411,23 +414,12 @@ func (m *accountManager) SyncAccounts(ctx context.Context, cfg domain.AccountIni
 	syncCfg := domain.AccountInitConfig{
 		APIID:         cfg.APIID,
 		APIHash:       cfg.APIHash,
-		SessionDir:    cfg.SessionDir,
 		Accounts:      newAccounts,
 		Logger:        cfg.Logger,
 		MaxConcurrent: cfg.MaxConcurrent,
 	}
 
 	return m.InitializeAccounts(ctx, syncCfg)
-}
-
-// GetManagedPhoneNumbers returns a list of phone numbers currently managed by the manager
-func (m *accountManager) GetManagedPhoneNumbers() []string {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-
-	result := make([]string, len(m.accountIDs))
-	copy(result, m.accountIDs)
-	return result
 }
 
 // Shutdown gracefully disconnects all managed accounts

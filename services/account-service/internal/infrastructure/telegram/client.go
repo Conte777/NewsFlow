@@ -28,10 +28,10 @@ type MTProtoClient struct {
 	apiID   int
 	apiHash string
 
-	// Session storage (one of these will be used)
-	sessionStorage   *FileSessionStorage      // Legacy file-based storage
-	postgresStorage  *PostgresSessionStorage  // PostgreSQL-based storage
-	phoneNumber      string
+	// Session storage (implements session.Storage interface)
+	sessionStorage  session.Storage
+	postgresStorage *PostgresSessionStorage // PostgreSQL storage for status updates
+	phoneNumber     string
 
 	// Connection state
 	connected     bool
@@ -66,48 +66,11 @@ type MTProtoClientConfig struct {
 	APIID       int
 	APIHash     string
 	PhoneNumber string
-	SessionDir  string
 	Logger      zerolog.Logger
 }
 
-// NewMTProtoClient creates a new MTProto client instance
-func NewMTProtoClient(cfg MTProtoClientConfig) (*MTProtoClient, error) {
-	if cfg.APIID == 0 {
-		return nil, fmt.Errorf("APIID is required")
-	}
-	if cfg.APIHash == "" {
-		return nil, fmt.Errorf("APIHash is required")
-	}
-	if cfg.PhoneNumber == "" {
-		return nil, fmt.Errorf("PhoneNumber is required")
-	}
-	if cfg.SessionDir == "" {
-		cfg.SessionDir = "./sessions"
-	}
-
-	// Create session storage with hashed phone number
-	sessionStorage, err := NewFileSessionStorage(cfg.SessionDir, cfg.PhoneNumber)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create session storage: %w", err)
-	}
-
-	client := &MTProtoClient{
-		apiID:               cfg.APIID,
-		apiHash:             cfg.APIHash,
-		phoneNumber:         cfg.PhoneNumber,
-		sessionStorage:      sessionStorage,
-		logger:              cfg.Logger.With().Str("component", "mtproto_client").Str("phone", cfg.PhoneNumber).Logger(),
-		connected:           false,
-		rateLimiter:         rate.NewLimiter(rate.Every(time.Second), 10), // 10 requests per second
-		channelInfoCache:    make(map[string]*cachedChannelInfo),
-		channelInfoCacheTTL: 15 * time.Minute, // Cache channel info for 15 minutes
-	}
-
-	return client, nil
-}
-
-// NewMTProtoClientWithDB creates a new MTProto client instance with PostgreSQL session storage
-func NewMTProtoClientWithDB(cfg MTProtoClientConfig, db *gorm.DB) (*MTProtoClient, error) {
+// NewMTProtoClient creates a new MTProto client instance with PostgreSQL session storage
+func NewMTProtoClient(cfg MTProtoClientConfig, db *gorm.DB) (domain.TelegramClient, error) {
 	if cfg.APIID == 0 {
 		return nil, fmt.Errorf("APIID is required")
 	}
@@ -131,6 +94,7 @@ func NewMTProtoClientWithDB(cfg MTProtoClientConfig, db *gorm.DB) (*MTProtoClien
 		apiID:               cfg.APIID,
 		apiHash:             cfg.APIHash,
 		phoneNumber:         cfg.PhoneNumber,
+		sessionStorage:      postgresStorage,
 		postgresStorage:     postgresStorage,
 		logger:              cfg.Logger.With().Str("component", "mtproto_client").Str("phone", cfg.PhoneNumber).Logger(),
 		connected:           false,
@@ -142,11 +106,34 @@ func NewMTProtoClientWithDB(cfg MTProtoClientConfig, db *gorm.DB) (*MTProtoClien
 	return client, nil
 }
 
-func (c *MTProtoClient) getSessionStorage() session.Storage {
-	if c.postgresStorage != nil {
-		return c.postgresStorage
+// NewMTProtoClientWithStorage creates client with custom session storage (for testing)
+func NewMTProtoClientWithStorage(cfg MTProtoClientConfig, storage session.Storage) (*MTProtoClient, error) {
+	if cfg.APIID == 0 {
+		return nil, fmt.Errorf("APIID is required")
 	}
-	return c.sessionStorage
+	if cfg.APIHash == "" {
+		return nil, fmt.Errorf("APIHash is required")
+	}
+	if cfg.PhoneNumber == "" {
+		return nil, fmt.Errorf("PhoneNumber is required")
+	}
+	if storage == nil {
+		return nil, fmt.Errorf("session storage is required")
+	}
+
+	client := &MTProtoClient{
+		apiID:               cfg.APIID,
+		apiHash:             cfg.APIHash,
+		phoneNumber:         cfg.PhoneNumber,
+		sessionStorage:      storage,
+		logger:              cfg.Logger.With().Str("component", "mtproto_client").Str("phone", cfg.PhoneNumber).Logger(),
+		connected:           false,
+		rateLimiter:         rate.NewLimiter(rate.Every(time.Second), 10),
+		channelInfoCache:    make(map[string]*cachedChannelInfo),
+		channelInfoCacheTTL: 15 * time.Minute,
+	}
+
+	return client, nil
 }
 
 // Connect connects to Telegram using MTProto with full authentication support
@@ -173,7 +160,7 @@ func (c *MTProtoClient) Connect(ctx context.Context) error {
 
 	// Create telegram client with session storage
 	c.client = telegram.NewClient(c.apiID, c.apiHash, telegram.Options{
-		SessionStorage: c.getSessionStorage(),
+		SessionStorage: c.sessionStorage,
 	})
 
 	// Create cancellable context for client lifecycle

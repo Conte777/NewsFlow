@@ -11,7 +11,7 @@ require (
 	go.uber.org/fx v1.24.0
 	google.golang.org/grpc v1.74.2
 	gorm.io/driver/postgres v1.5.4
-	gorm.io/gorm v1.25.5
+	gorm.io/gorm v1.31.1
 )
 
 require (

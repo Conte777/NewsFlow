@@ -7,6 +7,8 @@ import (
 	"testing"
 	"time"
 
+	"gorm.io/gorm"
+
 	"github.com/Conte777/NewsFlow/services/account-service/internal/domain"
 )
 
@@ -498,7 +500,7 @@ func TestInitializeAccounts_Success(t *testing.T) {
 
 	// Set up mock client factory that returns connected clients
 	callCount := 0
-	manager.clientFactory = func(cfg MTProtoClientConfig) (domain.TelegramClient, error) {
+	manager.clientFactory = func(cfg MTProtoClientConfig, db *gorm.DB) (domain.TelegramClient, error) {
 		callCount++
 		client := createTestClient(cfg.PhoneNumber, true)
 		return client, nil
@@ -512,7 +514,6 @@ func TestInitializeAccounts_Success(t *testing.T) {
 	cfg := domain.AccountInitConfig{
 		APIID:      12345,
 		APIHash:    "test_hash",
-		SessionDir: "./test_sessions",
 		Accounts:   []string{"+1111111111", "+2222222222", "+3333333333"},
 		Logger:     logger,
 	}
@@ -556,7 +557,6 @@ func TestInitializeAccounts_EmptyList(t *testing.T) {
 	cfg := domain.AccountInitConfig{
 		APIID:      12345,
 		APIHash:    "test_hash",
-		SessionDir: "./test_sessions",
 		Accounts:   []string{},
 		Logger:     logger,
 	}
@@ -585,7 +585,7 @@ func TestInitializeAccounts_PartialFailure(t *testing.T) {
 	manager := NewAccountManager().(*accountManager)
 
 	// Set up mock client factory that fails for specific phone numbers
-	manager.clientFactory = func(cfg MTProtoClientConfig) (domain.TelegramClient, error) {
+	manager.clientFactory = func(cfg MTProtoClientConfig, db *gorm.DB) (domain.TelegramClient, error) {
 		if cfg.PhoneNumber == "+2222222222" {
 			return nil, fmt.Errorf("connection failed")
 		}
@@ -601,7 +601,6 @@ func TestInitializeAccounts_PartialFailure(t *testing.T) {
 	cfg := domain.AccountInitConfig{
 		APIID:      12345,
 		APIHash:    "test_hash",
-		SessionDir: "./test_sessions",
 		Accounts:   []string{"+1111111111", "+2222222222", "+3333333333"},
 		Logger:     logger,
 	}
@@ -638,7 +637,7 @@ func TestInitializeAccounts_AllFailures(t *testing.T) {
 	manager := NewAccountManager().(*accountManager)
 
 	// Set up mock client factory that always fails
-	manager.clientFactory = func(cfg MTProtoClientConfig) (domain.TelegramClient, error) {
+	manager.clientFactory = func(cfg MTProtoClientConfig, db *gorm.DB) (domain.TelegramClient, error) {
 		return nil, fmt.Errorf("connection failed")
 	}
 
@@ -650,7 +649,6 @@ func TestInitializeAccounts_AllFailures(t *testing.T) {
 	cfg := domain.AccountInitConfig{
 		APIID:      12345,
 		APIHash:    "test_hash",
-		SessionDir: "./test_sessions",
 		Accounts:   []string{"+1111111111", "+2222222222"},
 		Logger:     logger,
 	}
@@ -682,7 +680,7 @@ func TestInitializeAccounts_ConnectFailure(t *testing.T) {
 	manager := NewAccountManager().(*accountManager)
 
 	// Set up mock client factory that returns disconnected clients
-	manager.clientFactory = func(cfg MTProtoClientConfig) (domain.TelegramClient, error) {
+	manager.clientFactory = func(cfg MTProtoClientConfig, db *gorm.DB) (domain.TelegramClient, error) {
 		// Create client that fails on Connect
 		client := &mockTelegramClientWithConnectFailure{
 			mockTelegramClient: mockTelegramClient{
@@ -701,7 +699,6 @@ func TestInitializeAccounts_ConnectFailure(t *testing.T) {
 	cfg := domain.AccountInitConfig{
 		APIID:      12345,
 		APIHash:    "test_hash",
-		SessionDir: "./test_sessions",
 		Accounts:   []string{"+1111111111"},
 		Logger:     logger,
 	}
