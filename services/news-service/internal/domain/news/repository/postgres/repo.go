@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"errors"
+	"time"
 
 	"github.com/Conte777/NewsFlow/services/news-service/internal/domain/news/deps"
 	"github.com/Conte777/NewsFlow/services/news-service/internal/domain/news/entities"
@@ -230,4 +231,39 @@ func (r *deliveredNewsRepository) GetUsersByNewsID(ctx context.Context, newsID u
 	}
 
 	return userIDs, nil
+}
+
+// UpdateTimestampByNewsID updates updated_at for deliveries of a news item
+func (r *deliveredNewsRepository) UpdateTimestampByNewsID(ctx context.Context, newsID uint, updatedAt time.Time) error {
+	result := r.db.WithContext(ctx).
+		Model(&entities.DeliveredNews{}).
+		Where("news_id = ?", newsID).
+		Update("updated_at", updatedAt)
+
+	if result.Error != nil {
+		return domainerrors.ErrDatabaseOperation
+	}
+
+	return nil
+}
+
+// SoftDeleteByNewsIDs marks deliveries as deleted for provided news IDs
+func (r *deliveredNewsRepository) SoftDeleteByNewsIDs(ctx context.Context, newsIDs []uint, deletedAt time.Time) error {
+	if len(newsIDs) == 0 {
+		return nil
+	}
+
+	result := r.db.WithContext(ctx).
+		Model(&entities.DeliveredNews{}).
+		Where("news_id IN ?", newsIDs).
+		Updates(map[string]interface{}{
+			"deleted_at": deletedAt,
+			"updated_at": deletedAt,
+		})
+
+	if result.Error != nil {
+		return domainerrors.ErrDatabaseOperation
+	}
+
+	return nil
 }

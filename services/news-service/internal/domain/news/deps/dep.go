@@ -2,6 +2,7 @@ package deps
 
 import (
 	"context"
+	"time"
 
 	"github.com/Conte777/NewsFlow/services/news-service/internal/domain/news/entities"
 )
@@ -46,6 +47,12 @@ type DeliveredNewsRepository interface {
 
 	// GetUsersByNewsID returns all user IDs who received the specific news
 	GetUsersByNewsID(ctx context.Context, newsID uint) ([]int64, error)
+
+	// UpdateTimestampByNewsID updates updated_at for all deliveries of the news
+	UpdateTimestampByNewsID(ctx context.Context, newsID uint, updatedAt time.Time) error
+
+	// SoftDeleteByNewsIDs marks deliveries as deleted for provided news IDs
+	SoftDeleteByNewsIDs(ctx context.Context, newsIDs []uint, deletedAt time.Time) error
 }
 
 // KafkaProducer defines interface for sending messages to Kafka

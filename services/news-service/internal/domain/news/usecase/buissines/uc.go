@@ -5,13 +5,14 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"time"
 
-	"github.com/rs/zerolog"
 	"github.com/Conte777/NewsFlow/services/news-service/internal/domain/news/deps"
 	"github.com/Conte777/NewsFlow/services/news-service/internal/domain/news/dto"
 	"github.com/Conte777/NewsFlow/services/news-service/internal/domain/news/entities"
 	domainerrors "github.com/Conte777/NewsFlow/services/news-service/internal/domain/news/errors"
 	pkgerrors "github.com/Conte777/NewsFlow/services/news-service/pkg/errors"
+	"github.com/rs/zerolog"
 )
 
 // UseCase implements news business logic
@@ -271,36 +272,41 @@ func (u *UseCase) getChannelSubscribersWithFallback(ctx context.Context, channel
 }
 
 // ProcessNewsDeleted processes news deleted events
-func (u *UseCase) ProcessNewsDeleted(ctx context.Context, channelID string, messageIDs []int) error {
-	if channelID == "" {
+func (u *UseCase) ProcessNewsDeleted(ctx context.Context, event *dto.NewsDeletedEvent) error {
+	if event.ChannelID == "" {
 		return domainerrors.ErrInvalidChannelID
 	}
 
-	if len(messageIDs) == 0 {
-		u.logger.Debug().Str("channel_id", channelID).Msg("No message IDs to delete")
+	if len(event.MessageIDs) == 0 {
+		u.logger.Debug().Str("channel_id", event.ChannelID).Msg("No message IDs to delete")
 		return nil
 	}
 
+	deletedAt := time.Now()
+	if event.DeletedAt > 0 {
+		deletedAt = time.Unix(event.DeletedAt, 0)
+	}
+
 	// Soft delete news and get their IDs
-	deletedIDs, err := u.newsRepo.SoftDeleteBatch(ctx, channelID, messageIDs)
+	deletedIDs, err := u.newsRepo.SoftDeleteBatch(ctx, event.ChannelID, event.MessageIDs)
 	if err != nil {
 		u.logger.Error().Err(err).
-			Str("channel_id", channelID).
-			Ints("message_ids", messageIDs).
+			Str("channel_id", event.ChannelID).
+			Ints("message_ids", event.MessageIDs).
 			Msg("Failed to soft delete news")
 		return err
 	}
 
 	if len(deletedIDs) == 0 {
 		u.logger.Debug().
-			Str("channel_id", channelID).
-			Ints("message_ids", messageIDs).
+			Str("channel_id", event.ChannelID).
+			Ints("message_ids", event.MessageIDs).
 			Msg("No news found to delete")
 		return nil
 	}
 
 	u.logger.Info().
-		Str("channel_id", channelID).
+		Str("channel_id", event.ChannelID).
 		Int("deleted_count", len(deletedIDs)).
 		Msg("News soft deleted")
 
@@ -316,12 +322,12 @@ func (u *UseCase) ProcessNewsDeleted(ctx context.Context, channelID string, mess
 
 		// Fallback: if no delivered users found, try to get channel subscribers
 		if len(userIDs) == 0 {
-			u.logger.Debug().Uint("news_id", newsID).Str("channel_id", channelID).
+			u.logger.Debug().Uint("news_id", newsID).Str("channel_id", event.ChannelID).
 				Msg("No delivered users found, falling back to channel subscribers")
 
-			fallbackUsers, fallbackErr := u.subscriptionSvc.GetChannelSubscribers(ctx, channelID)
+			fallbackUsers, fallbackErr := u.subscriptionSvc.GetChannelSubscribers(ctx, event.ChannelID)
 			if fallbackErr != nil {
-				u.logger.Warn().Err(fallbackErr).Str("channel_id", channelID).
+				u.logger.Warn().Err(fallbackErr).Str("channel_id", event.ChannelID).
 					Msg("Failed to get channel subscribers for fallback")
 				continue
 			}
@@ -345,6 +351,12 @@ func (u *UseCase) ProcessNewsDeleted(ctx context.Context, channelID string, mess
 			Uint("news_id", newsID).
 			Int("users_count", len(userIDs)).
 			Msg("News delete event sent to users")
+
+		if err := u.deliveredRepo.SoftDeleteByNewsIDs(ctx, []uint{newsID}, deletedAt); err != nil {
+			u.logger.Warn().Err(err).
+				Uint("news_id", newsID).
+				Msg("Failed to mark delivered news as deleted")
+		}
 	}
 
 	return nil
@@ -398,6 +410,17 @@ func (u *UseCase) ProcessNewsEdited(ctx context.Context, event *dto.NewsEditedEv
 		Str("channel_id", event.ChannelID).
 		Int("message_id", event.MessageID).
 		Msg("News updated")
+
+	updatedAt := time.Now()
+	if event.EditedAt > 0 {
+		updatedAt = time.Unix(event.EditedAt, 0)
+	}
+
+	if err := u.deliveredRepo.UpdateTimestampByNewsID(ctx, news.ID, updatedAt); err != nil {
+		u.logger.Warn().Err(err).
+			Uint("news_id", news.ID).
+			Msg("Failed to update delivered news timestamp")
+	}
 
 	// Get users who received this news
 	userIDs, err := u.deliveredRepo.GetUsersByNewsID(ctx, news.ID)

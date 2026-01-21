@@ -4,9 +4,9 @@ import (
 	"context"
 	"encoding/json"
 
-	"github.com/rs/zerolog"
 	"github.com/Conte777/NewsFlow/services/news-service/internal/domain/news/dto"
 	"github.com/Conte777/NewsFlow/services/news-service/internal/domain/news/usecase/buissines"
+	"github.com/rs/zerolog"
 )
 
 // Handlers handles Kafka messages for news domain
@@ -109,7 +109,7 @@ func (h *Handlers) HandleNewsDeleted(ctx context.Context, message []byte) error 
 		Ints("message_ids", event.MessageIDs).
 		Msg("Processing news deleted event")
 
-	if err := h.uc.ProcessNewsDeleted(ctx, event.ChannelID, event.MessageIDs); err != nil {
+	if err := h.uc.ProcessNewsDeleted(ctx, &event); err != nil {
 		h.logger.Error().Err(err).
 			Str("channel_id", event.ChannelID).
 			Ints("message_ids", event.MessageIDs).
