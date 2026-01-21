@@ -25,6 +25,7 @@ import (
 // Constants for Telegram API
 const (
 	MaxMessageLength    = 4096
+	MaxCaptionLength    = 1024
 	MessageSplitTimeout = 2 * time.Second
 	RequestTimeout      = 30 * time.Second
 	DownloadTimeout     = 120 * time.Second // Timeout for downloading files from S3
@@ -1041,6 +1042,37 @@ func (h *Handlers) EditMessageText(ctx context.Context, userID int64, messageID 
 	}
 
 	h.logger.Info().Int64("user_id", userID).Int("message_id", messageID).Msg("Message edited successfully")
+	return nil
+}
+
+// EditMessageCaption edits message caption in user's chat
+func (h *Handlers) EditMessageCaption(ctx context.Context, userID int64, messageID int, caption string) error {
+	if caption == "" {
+		return fmt.Errorf("message caption cannot be empty")
+	}
+
+	h.logger.Debug().Int64("user_id", userID).Int("message_id", messageID).Int("caption_length", len(caption)).Msg("Editing message caption")
+
+	msgCtx, cancel := context.WithTimeout(ctx, RequestTimeout)
+	defer cancel()
+
+	if len(caption) > MaxCaptionLength {
+		caption = caption[:MaxCaptionLength-3] + "..."
+	}
+
+	_, err := h.bot.EditMessageCaption(msgCtx, &tgbot.EditMessageCaptionParams{
+		ChatID:    userID,
+		MessageID: messageID,
+		Caption:   caption,
+		ParseMode: models.ParseModeHTML,
+	})
+
+	if err != nil {
+		h.logger.Error().Int64("user_id", userID).Int("message_id", messageID).Err(err).Msg("Failed to edit message caption")
+		return fmt.Errorf("failed to edit message caption: %w", err)
+	}
+
+	h.logger.Info().Int64("user_id", userID).Int("message_id", messageID).Msg("Message caption edited successfully")
 	return nil
 }
 

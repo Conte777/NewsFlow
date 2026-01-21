@@ -42,6 +42,9 @@ type TelegramSender interface {
 
 	// EditMessageText edits message text in user's chat
 	EditMessageText(ctx context.Context, userID int64, messageID int, text string) error
+
+	// EditMessageCaption edits message caption in user's chat
+	EditMessageCaption(ctx context.Context, userID int64, messageID int, caption string) error
 }
 
 // SubscriptionEventProducer defines interface for sending subscription events to Kafka

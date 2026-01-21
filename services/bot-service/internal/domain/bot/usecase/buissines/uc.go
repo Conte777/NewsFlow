@@ -297,6 +297,7 @@ func (uc *UseCase) EditNews(ctx context.Context, event *dto.NewsEditEvent) error
 
 	// Format updated message
 	message := fmt.Sprintf("📰 <b>%s</b>\n\n%s\n\n<i>(изменено)</i>", event.ChannelName, event.Content)
+	hasMedia := len(event.MediaURLs) > 0
 
 	var lastErr error
 	successCount := 0
@@ -312,14 +313,34 @@ func (uc *UseCase) EditNews(ctx context.Context, event *dto.NewsEditEvent) error
 			continue
 		}
 
-		// Edit message in Telegram
-		if err := uc.sender.EditMessageText(ctx, userID, deliveredMsg.TelegramMessageID, message); err != nil {
-			uc.logger.Error().Err(err).
+		var editErr error
+
+		if hasMedia {
+			editErr = uc.sender.EditMessageCaption(ctx, userID, deliveredMsg.TelegramMessageID, message)
+			if editErr != nil {
+				uc.logger.Warn().
+					Err(editErr).
+					Uint("news_id", event.NewsID).
+					Int64("user_id", userID).
+					Int("telegram_message_id", deliveredMsg.TelegramMessageID).
+					Msg("Failed to edit caption, trying text edit fallback")
+
+				if fallbackErr := uc.sender.EditMessageText(ctx, userID, deliveredMsg.TelegramMessageID, message); fallbackErr != nil {
+					editErr = fallbackErr
+				}
+			}
+		} else {
+			editErr = uc.sender.EditMessageText(ctx, userID, deliveredMsg.TelegramMessageID, message)
+		}
+
+		if editErr != nil {
+			uc.logger.Error().
+				Err(editErr).
 				Uint("news_id", event.NewsID).
 				Int64("user_id", userID).
 				Int("telegram_message_id", deliveredMsg.TelegramMessageID).
 				Msg("Failed to edit message in Telegram")
-			lastErr = err
+			lastErr = editErr
 			continue
 		}
 
