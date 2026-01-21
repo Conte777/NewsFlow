@@ -2,7 +2,6 @@ package telegram
 
 import (
 	"context"
-	"strings"
 	"testing"
 
 	"github.com/Conte777/NewsFlow/services/account-service/internal/domain"
@@ -116,8 +115,8 @@ func truncateString(s string, maxLen int) string {
 	return s[:maxLen] + "..."
 }
 
-// TestExtractMediaURLs_Photo tests photo media extraction
-func TestExtractMediaURLs_Photo(t *testing.T) {
+// TestExtractSimpleMediaURLs_Photo tests that photo media returns empty slice (handled via S3)
+func TestExtractSimpleMediaURLs_Photo(t *testing.T) {
 	client := &MTProtoClient{
 		logger: createTestLogger(),
 	}
@@ -132,23 +131,16 @@ func TestExtractMediaURLs_Photo(t *testing.T) {
 		},
 	}
 
-	urls := client.extractMediaURLs(media)
+	urls := client.extractSimpleMediaURLs(media)
 
-	if len(urls) != 1 {
-		t.Fatalf("expected 1 URL, got %d", len(urls))
-	}
-
-	// Should return file_id in base64 format (not URL scheme)
-	if strings.Contains(urls[0], "://") {
-		t.Errorf("expected file_id format, got URL scheme: %s", urls[0])
-	}
-	if len(urls[0]) == 0 {
-		t.Error("expected non-empty file_id")
+	// Photo media is now handled via S3 upload, so extractSimpleMediaURLs returns empty
+	if len(urls) != 0 {
+		t.Errorf("expected 0 URLs for photo (handled via S3), got %d", len(urls))
 	}
 }
 
-// TestExtractMediaURLs_Video tests video document extraction
-func TestExtractMediaURLs_Video(t *testing.T) {
+// TestExtractSimpleMediaURLs_Video tests that video document returns empty slice (handled via S3)
+func TestExtractSimpleMediaURLs_Video(t *testing.T) {
 	client := &MTProtoClient{
 		logger: createTestLogger(),
 	}
@@ -164,23 +156,16 @@ func TestExtractMediaURLs_Video(t *testing.T) {
 		},
 	}
 
-	urls := client.extractMediaURLs(media)
+	urls := client.extractSimpleMediaURLs(media)
 
-	if len(urls) != 1 {
-		t.Fatalf("expected 1 URL, got %d", len(urls))
-	}
-
-	// Should return file_id in base64 format (not URL scheme)
-	if strings.Contains(urls[0], "://") {
-		t.Errorf("expected file_id format, got URL scheme: %s", urls[0])
-	}
-	if len(urls[0]) == 0 {
-		t.Error("expected non-empty file_id")
+	// Document media is now handled via S3 upload, so extractSimpleMediaURLs returns empty
+	if len(urls) != 0 {
+		t.Errorf("expected 0 URLs for video (handled via S3), got %d", len(urls))
 	}
 }
 
-// TestExtractMediaURLs_Audio tests audio document extraction
-func TestExtractMediaURLs_Audio(t *testing.T) {
+// TestExtractSimpleMediaURLs_Audio tests that audio document returns empty slice (handled via S3)
+func TestExtractSimpleMediaURLs_Audio(t *testing.T) {
 	client := &MTProtoClient{
 		logger: createTestLogger(),
 	}
@@ -196,23 +181,16 @@ func TestExtractMediaURLs_Audio(t *testing.T) {
 		},
 	}
 
-	urls := client.extractMediaURLs(media)
+	urls := client.extractSimpleMediaURLs(media)
 
-	if len(urls) != 1 {
-		t.Fatalf("expected 1 URL, got %d", len(urls))
-	}
-
-	// Should return file_id in base64 format (not URL scheme)
-	if strings.Contains(urls[0], "://") {
-		t.Errorf("expected file_id format, got URL scheme: %s", urls[0])
-	}
-	if len(urls[0]) == 0 {
-		t.Error("expected non-empty file_id")
+	// Document media is now handled via S3 upload, so extractSimpleMediaURLs returns empty
+	if len(urls) != 0 {
+		t.Errorf("expected 0 URLs for audio (handled via S3), got %d", len(urls))
 	}
 }
 
-// TestExtractMediaURLs_Document tests generic document extraction
-func TestExtractMediaURLs_Document(t *testing.T) {
+// TestExtractSimpleMediaURLs_Document tests that generic document returns empty slice (handled via S3)
+func TestExtractSimpleMediaURLs_Document(t *testing.T) {
 	client := &MTProtoClient{
 		logger: createTestLogger(),
 	}
@@ -227,23 +205,16 @@ func TestExtractMediaURLs_Document(t *testing.T) {
 		},
 	}
 
-	urls := client.extractMediaURLs(media)
+	urls := client.extractSimpleMediaURLs(media)
 
-	if len(urls) != 1 {
-		t.Fatalf("expected 1 URL, got %d", len(urls))
-	}
-
-	// Should return file_id in base64 format (not URL scheme)
-	if strings.Contains(urls[0], "://") {
-		t.Errorf("expected file_id format, got URL scheme: %s", urls[0])
-	}
-	if len(urls[0]) == 0 {
-		t.Error("expected non-empty file_id")
+	// Document media is now handled via S3 upload, so extractSimpleMediaURLs returns empty
+	if len(urls) != 0 {
+		t.Errorf("expected 0 URLs for document (handled via S3), got %d", len(urls))
 	}
 }
 
-// TestExtractMediaURLs_WebPage tests webpage media extraction
-func TestExtractMediaURLs_WebPage(t *testing.T) {
+// TestExtractSimpleMediaURLs_WebPage tests webpage media extraction (only URL, no embedded media)
+func TestExtractSimpleMediaURLs_WebPage(t *testing.T) {
 	client := &MTProtoClient{
 		logger: createTestLogger(),
 	}
@@ -265,38 +236,21 @@ func TestExtractMediaURLs_WebPage(t *testing.T) {
 		},
 	}
 
-	urls := client.extractMediaURLs(media)
+	urls := client.extractSimpleMediaURLs(media)
 
-	// Should extract webpage URL, photo file_id, and document file_id
-	if len(urls) != 3 {
-		t.Fatalf("expected 3 URLs, got %d: %v", len(urls), urls)
-	}
-
-	// Check that webpage URL is present
-	hasWebURL := false
-	for _, url := range urls {
-		if url == "https://example.com/article" {
-			hasWebURL = true
-		}
-	}
-	if !hasWebURL {
-		t.Error("expected webpage URL to be present")
+	// extractSimpleMediaURLs now only extracts the webpage URL, not embedded photo/document
+	if len(urls) != 1 {
+		t.Fatalf("expected 1 URL (only webpage URL), got %d: %v", len(urls), urls)
 	}
 
-	// Check that photo and document are file_ids (not old URL format)
-	fileIDCount := 0
-	for _, url := range urls {
-		if !strings.Contains(url, "://") {
-			fileIDCount++
-		}
-	}
-	if fileIDCount != 2 {
-		t.Errorf("expected 2 file_ids (photo and document), got %d", fileIDCount)
+	expected := "https://example.com/article"
+	if urls[0] != expected {
+		t.Errorf("expected %s, got %s", expected, urls[0])
 	}
 }
 
-// TestExtractMediaURLs_Geo tests geographic location extraction
-func TestExtractMediaURLs_Geo(t *testing.T) {
+// TestExtractSimpleMediaURLs_Geo tests geographic location extraction
+func TestExtractSimpleMediaURLs_Geo(t *testing.T) {
 	client := &MTProtoClient{
 		logger: createTestLogger(),
 	}
@@ -308,7 +262,7 @@ func TestExtractMediaURLs_Geo(t *testing.T) {
 		},
 	}
 
-	urls := client.extractMediaURLs(media)
+	urls := client.extractSimpleMediaURLs(media)
 
 	if len(urls) != 1 {
 		t.Fatalf("expected 1 URL, got %d", len(urls))
@@ -320,8 +274,8 @@ func TestExtractMediaURLs_Geo(t *testing.T) {
 	}
 }
 
-// TestExtractMediaURLs_Contact tests contact extraction
-func TestExtractMediaURLs_Contact(t *testing.T) {
+// TestExtractSimpleMediaURLs_Contact tests contact extraction
+func TestExtractSimpleMediaURLs_Contact(t *testing.T) {
 	client := &MTProtoClient{
 		logger: createTestLogger(),
 	}
@@ -330,7 +284,7 @@ func TestExtractMediaURLs_Contact(t *testing.T) {
 		PhoneNumber: "+1234567890",
 	}
 
-	urls := client.extractMediaURLs(media)
+	urls := client.extractSimpleMediaURLs(media)
 
 	if len(urls) != 1 {
 		t.Fatalf("expected 1 URL, got %d", len(urls))
@@ -342,8 +296,8 @@ func TestExtractMediaURLs_Contact(t *testing.T) {
 	}
 }
 
-// TestExtractMediaURLs_Poll tests that polls return empty slice
-func TestExtractMediaURLs_Poll(t *testing.T) {
+// TestExtractSimpleMediaURLs_Poll tests that polls return empty slice
+func TestExtractSimpleMediaURLs_Poll(t *testing.T) {
 	client := &MTProtoClient{
 		logger: createTestLogger(),
 	}
@@ -352,22 +306,22 @@ func TestExtractMediaURLs_Poll(t *testing.T) {
 		Poll: tg.Poll{ID: 55555},
 	}
 
-	urls := client.extractMediaURLs(media)
+	urls := client.extractSimpleMediaURLs(media)
 
 	if len(urls) != 0 {
 		t.Errorf("expected 0 URLs for poll, got %d", len(urls))
 	}
 }
 
-// TestExtractMediaURLs_Empty tests empty/nil media
-func TestExtractMediaURLs_Empty(t *testing.T) {
+// TestExtractSimpleMediaURLs_Empty tests empty/nil media
+func TestExtractSimpleMediaURLs_Empty(t *testing.T) {
 	client := &MTProtoClient{
 		logger: createTestLogger(),
 	}
 
 	media := &tg.MessageMediaEmpty{}
 
-	urls := client.extractMediaURLs(media)
+	urls := client.extractSimpleMediaURLs(media)
 
 	if len(urls) != 0 {
 		t.Errorf("expected 0 URLs for empty media, got %d", len(urls))

@@ -7,6 +7,7 @@ type ChannelSubscription struct {
 	AccountID              string    `db:"account_id" json:"accountId"`
 	ChannelID              string    `db:"channel_id" json:"channelId"`
 	ChannelName            string    `db:"channel_name" json:"channelName"`
+	NumericID              int64     `db:"numeric_id" json:"numericId"`
 	LastProcessedMessageID int       `db:"last_processed_message_id" json:"lastProcessedMessageId"`
 	CreatedAt              time.Time `db:"created_at" json:"createdAt"`
 }

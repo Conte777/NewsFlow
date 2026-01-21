@@ -2,6 +2,7 @@ package business
 
 import (
 	"context"
+	"strconv"
 	"time"
 
 	"github.com/Conte777/NewsFlow/services/account-service/internal/domain"
@@ -76,22 +77,31 @@ func (u *UseCase) Subscribe(ctx context.Context, channelID, channelName string) 
 		return channelerrors.ErrSubscriptionFailed
 	}
 
-	// Get channel name if not provided
-	if channelName == "" {
-		info, err := client.GetChannelInfo(ctx, channelID)
-		if err != nil {
-			u.logger.Warn().Err(err).
-				Str("channel_id", channelID).
-				Msg("Failed to get channel info, using channel ID")
+	// Get channel info to retrieve numeric ID and title
+	var numericID int64
+	info, err := client.GetChannelInfo(ctx, channelID)
+	if err != nil {
+		u.logger.Warn().Err(err).
+			Str("channel_id", channelID).
+			Msg("Failed to get channel info, using channel ID as name")
+		if channelName == "" {
 			channelName = channelID
-		} else {
+		}
+	} else {
+		if channelName == "" {
 			channelName = info.Title
+		}
+		// Parse numeric ID from string
+		if info.ID != "" {
+			if parsed, parseErr := strconv.ParseInt(info.ID, 10, 64); parseErr == nil {
+				numericID = parsed
+			}
 		}
 	}
 
 	// Save to repository with account binding
 	phoneNumber := client.GetAccountID() // Returns phone_number
-	if err := u.channelRepo.AddChannelForAccount(ctx, phoneNumber, channelID, channelName); err != nil {
+	if err := u.channelRepo.AddChannelForAccount(ctx, phoneNumber, channelID, channelName, numericID); err != nil {
 		u.logger.Error().Err(err).
 			Str("channel_id", channelID).
 			Str("phone_number", phoneNumber).

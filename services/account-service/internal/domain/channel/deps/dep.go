@@ -29,11 +29,12 @@ type ChannelRepository interface {
 	RemoveChannel(ctx context.Context, channelID string) error
 	GetAllChannels(ctx context.Context) ([]entities.ChannelSubscription, error)
 	GetChannel(ctx context.Context, channelID string) (*entities.ChannelSubscription, error)
+	GetChannelByNumericID(ctx context.Context, numericID int64) (*entities.ChannelSubscription, error)
 	ChannelExists(ctx context.Context, channelID string) (bool, error)
 	UpdateLastProcessedMessageID(ctx context.Context, channelID string, messageID int) error
 
 	// New methods for account-channel binding
-	AddChannelForAccount(ctx context.Context, phoneNumber, channelID, channelName string) error
+	AddChannelForAccount(ctx context.Context, phoneNumber, channelID, channelName string, numericID int64) error
 	RemoveChannelForAccount(ctx context.Context, phoneNumber, channelID string) error
 	GetChannelsByAccount(ctx context.Context, phoneNumber string) ([]entities.ChannelSubscription, error)
 	GetAccountPhoneForChannel(ctx context.Context, channelID string) (string, error)

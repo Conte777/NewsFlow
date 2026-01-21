@@ -311,10 +311,25 @@ func (u *UseCase) ProcessNewsDeleted(ctx context.Context, channelID string, mess
 			u.logger.Error().Err(err).
 				Uint("news_id", newsID).
 				Msg("Failed to get users for deleted news")
-			continue
+			// Continue to fallback instead of skipping
+		}
+
+		// Fallback: if no delivered users found, try to get channel subscribers
+		if len(userIDs) == 0 {
+			u.logger.Debug().Uint("news_id", newsID).Str("channel_id", channelID).
+				Msg("No delivered users found, falling back to channel subscribers")
+
+			fallbackUsers, fallbackErr := u.subscriptionSvc.GetChannelSubscribers(ctx, channelID)
+			if fallbackErr != nil {
+				u.logger.Warn().Err(fallbackErr).Str("channel_id", channelID).
+					Msg("Failed to get channel subscribers for fallback")
+				continue
+			}
+			userIDs = fallbackUsers
 		}
 
 		if len(userIDs) == 0 {
+			u.logger.Debug().Uint("news_id", newsID).Msg("No users to notify about deleted news")
 			continue
 		}
 

@@ -23,7 +23,7 @@ func NewRepository(db *gorm.DB) deps.ChannelRepository {
 }
 
 // AddChannelForAccount adds a channel subscription with account binding
-func (r *Repository) AddChannelForAccount(ctx context.Context, phoneNumber, channelID, channelName string) error {
+func (r *Repository) AddChannelForAccount(ctx context.Context, phoneNumber, channelID, channelName string, numericID int64) error {
 	var account entities.AccountModel
 	if err := r.db.WithContext(ctx).Where("phone_number = ?", phoneNumber).First(&account).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -36,12 +36,13 @@ func (r *Repository) AddChannelForAccount(ctx context.Context, phoneNumber, chan
 		AccountID:   account.ID,
 		ChannelID:   channelID,
 		ChannelName: channelName,
+		NumericID:   numericID,
 	}
 
 	result := r.db.WithContext(ctx).
 		Clauses(clause.OnConflict{
 			Columns:   []clause.Column{{Name: "account_id"}, {Name: "channel_id"}},
-			DoUpdates: clause.AssignmentColumns([]string{"channel_name", "updated_at"}),
+			DoUpdates: clause.AssignmentColumns([]string{"channel_name", "numeric_id", "updated_at"}),
 		}).
 		Create(model)
 	if result.Error != nil {
@@ -119,6 +120,21 @@ func (r *Repository) GetChannel(ctx context.Context, channelID string) (*entitie
 			return nil, channelerrors.ErrChannelNotFound
 		}
 		return nil, fmt.Errorf("failed to get channel: %w", err)
+	}
+
+	return model.ToEntity(), nil
+}
+
+// GetChannelByNumericID retrieves a channel subscription by its Telegram numeric ID
+func (r *Repository) GetChannelByNumericID(ctx context.Context, numericID int64) (*entities.ChannelSubscription, error) {
+	var model entities.AccountChannelModel
+	if err := r.db.WithContext(ctx).
+		Where("numeric_id = ?", numericID).
+		First(&model).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, channelerrors.ErrChannelNotFound
+		}
+		return nil, fmt.Errorf("failed to get channel by numeric ID: %w", err)
 	}
 
 	return model.ToEntity(), nil

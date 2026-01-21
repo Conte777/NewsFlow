@@ -513,7 +513,7 @@ func (h *NewsUpdateHandler) OnDeleteChannelMessages(
 
 	channelID := fmt.Sprintf("%d", u.ChannelID)
 
-	// Try to get channel username if available
+	// Try to get channel username if available in entities cache
 	if channel, ok := e.Channels[u.ChannelID]; ok {
 		if channel.Username != "" {
 			channelID = "@" + channel.Username
@@ -525,6 +525,19 @@ func (h *NewsUpdateHandler) OnDeleteChannelMessages(
 	if err != nil {
 		h.logger.Error().Err(err).Str("channel_id", channelID).Msg("failed to check if channel exists")
 		return nil
+	}
+
+	// Fallback: if channel not found by username, try to find by numeric ID
+	if !exists {
+		savedChannel, lookupErr := h.channelRepo.GetChannelByNumericID(ctx, u.ChannelID)
+		if lookupErr == nil && savedChannel != nil {
+			channelID = savedChannel.ChannelID
+			exists = true
+			h.logger.Debug().
+				Int64("numeric_id", u.ChannelID).
+				Str("channel_id", channelID).
+				Msg("found channel by numeric ID fallback")
+		}
 	}
 
 	if !exists {
