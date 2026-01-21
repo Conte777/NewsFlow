@@ -1247,28 +1247,13 @@ func (h *Handlers) sendFileAndGetID(ctx context.Context, userID int64, text stri
 	var msg *models.Message
 	var err error
 
-	switch file.MediaType {
-	case "photo":
-		msg, err = h.bot.SendPhoto(msgCtx, &tgbot.SendPhotoParams{
-			ChatID:    userID,
-			Photo:     &models.InputFileUpload{Filename: file.Filename, Data: bytes.NewReader(file.Data)},
-			Caption:   text,
-			ParseMode: models.ParseModeHTML,
-		})
-	case "video":
-		msg, err = h.bot.SendVideo(msgCtx, &tgbot.SendVideoParams{
-			ChatID:    userID,
-			Video:     &models.InputFileUpload{Filename: file.Filename, Data: bytes.NewReader(file.Data)},
-			Caption:   text,
-			ParseMode: models.ParseModeHTML,
-		})
-	default:
-		msg, err = h.bot.SendDocument(msgCtx, &tgbot.SendDocumentParams{
-			ChatID:    userID,
-			Document:  &models.InputFileUpload{Filename: file.Filename, Data: bytes.NewReader(file.Data)},
-			Caption:   text,
-			ParseMode: models.ParseModeHTML,
-		})
+	// Check if we already have file_id from previous upload
+	if file.FileID != "" {
+		// Use cached file_id - much faster, no upload needed
+		msg, err = h.sendFileByID(msgCtx, userID, text, file)
+	} else {
+		// First time - upload file and get file_id
+		msg, err = h.sendFileByUpload(msgCtx, userID, text, file)
 	}
 
 	if err != nil {
@@ -1276,8 +1261,22 @@ func (h *Handlers) sendFileAndGetID(ctx context.Context, userID int64, text stri
 			Int64("user_id", userID).
 			Str("media_type", file.MediaType).
 			Str("filename", file.Filename).
+			Bool("used_file_id", file.FileID != "").
 			Msg("Failed to send file")
 		return 0, fmt.Errorf("failed to send %s: %w", file.MediaType, err)
+	}
+
+	// Extract file_id from response for reuse (only if we uploaded)
+	if file.FileID == "" {
+		file.FileID = h.extractFileID(msg, file.MediaType)
+		if file.FileID != "" {
+			// Clear raw data to free memory - we have file_id now
+			file.Data = nil
+			h.logger.Debug().
+				Str("file_id", file.FileID).
+				Str("media_type", file.MediaType).
+				Msg("Extracted file_id, cleared raw data from memory")
+		}
 	}
 
 	h.logger.Debug().
@@ -1285,7 +1284,87 @@ func (h *Handlers) sendFileAndGetID(ctx context.Context, userID int64, text stri
 		Int("message_id", msg.ID).
 		Str("media_type", file.MediaType).
 		Str("filename", file.Filename).
+		Bool("used_file_id", file.FileID != "").
 		Msg("File sent successfully")
 
 	return msg.ID, nil
+}
+
+// sendFileByUpload uploads file data to Telegram
+func (h *Handlers) sendFileByUpload(ctx context.Context, userID int64, text string, file *entities.DownloadedFile) (*models.Message, error) {
+	switch file.MediaType {
+	case "photo":
+		return h.bot.SendPhoto(ctx, &tgbot.SendPhotoParams{
+			ChatID:    userID,
+			Photo:     &models.InputFileUpload{Filename: file.Filename, Data: bytes.NewReader(file.Data)},
+			Caption:   text,
+			ParseMode: models.ParseModeHTML,
+		})
+	case "video":
+		return h.bot.SendVideo(ctx, &tgbot.SendVideoParams{
+			ChatID:    userID,
+			Video:     &models.InputFileUpload{Filename: file.Filename, Data: bytes.NewReader(file.Data)},
+			Caption:   text,
+			ParseMode: models.ParseModeHTML,
+		})
+	default:
+		return h.bot.SendDocument(ctx, &tgbot.SendDocumentParams{
+			ChatID:    userID,
+			Document:  &models.InputFileUpload{Filename: file.Filename, Data: bytes.NewReader(file.Data)},
+			Caption:   text,
+			ParseMode: models.ParseModeHTML,
+		})
+	}
+}
+
+// sendFileByID sends file using cached Telegram file_id
+func (h *Handlers) sendFileByID(ctx context.Context, userID int64, text string, file *entities.DownloadedFile) (*models.Message, error) {
+	switch file.MediaType {
+	case "photo":
+		return h.bot.SendPhoto(ctx, &tgbot.SendPhotoParams{
+			ChatID:    userID,
+			Photo:     &models.InputFileString{Data: file.FileID},
+			Caption:   text,
+			ParseMode: models.ParseModeHTML,
+		})
+	case "video":
+		return h.bot.SendVideo(ctx, &tgbot.SendVideoParams{
+			ChatID:    userID,
+			Video:     &models.InputFileString{Data: file.FileID},
+			Caption:   text,
+			ParseMode: models.ParseModeHTML,
+		})
+	default:
+		return h.bot.SendDocument(ctx, &tgbot.SendDocumentParams{
+			ChatID:    userID,
+			Document:  &models.InputFileString{Data: file.FileID},
+			Caption:   text,
+			ParseMode: models.ParseModeHTML,
+		})
+	}
+}
+
+// extractFileID extracts file_id from Telegram response
+func (h *Handlers) extractFileID(msg *models.Message, mediaType string) string {
+	if msg == nil {
+		return ""
+	}
+
+	switch mediaType {
+	case "photo":
+		// Photo array contains multiple sizes, take the largest (last one)
+		if len(msg.Photo) > 0 {
+			return msg.Photo[len(msg.Photo)-1].FileID
+		}
+	case "video":
+		if msg.Video != nil {
+			return msg.Video.FileID
+		}
+	default:
+		if msg.Document != nil {
+			return msg.Document.FileID
+		}
+	}
+
+	return ""
 }

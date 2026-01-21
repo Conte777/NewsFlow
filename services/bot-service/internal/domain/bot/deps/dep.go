@@ -26,6 +26,8 @@ type TelegramSender interface {
 	SendMessageWithMediaAndGetID(ctx context.Context, userID int64, text string, mediaURLs []string) (messageID int, err error)
 
 	// SendMessageWithFilesAndGetID sends downloaded files to user and returns the telegram message ID
+	// If file has FileID set, uses it instead of uploading Data
+	// After successful upload, populates FileID in each file for reuse
 	SendMessageWithFilesAndGetID(ctx context.Context, userID int64, text string, files []*entities.DownloadedFile) (messageID int, err error)
 
 	// DownloadFiles downloads files from S3 URLs
