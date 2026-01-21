@@ -23,6 +23,7 @@ type NewsDeliveryMessage struct {
 	UserIDs     []int64  `json:"user_ids"`
 	ChannelID   string   `json:"channel_id"`
 	ChannelName string   `json:"channel_name"`
+	MessageID   int      `json:"message_id"` // Telegram message ID for copyMessage
 	Content     string   `json:"content"`
 	MediaURLs   []string `json:"media_urls"`
 	Timestamp   int64    `json:"timestamp"`
@@ -66,12 +67,13 @@ func NewProducer(cfg *config.KafkaConfig, logger zerolog.Logger) (deps.KafkaProd
 	}, nil
 }
 
-func (p *Producer) SendNewsDelivery(ctx context.Context, newsID uint, userIDs []int64, channelID, channelName, content string, mediaURLs []string) error {
+func (p *Producer) SendNewsDelivery(ctx context.Context, newsID uint, userIDs []int64, channelID, channelName string, messageID int, content string, mediaURLs []string) error {
 	msg := NewsDeliveryMessage{
 		NewsID:      newsID,
 		UserIDs:     userIDs,
 		ChannelID:   channelID,
 		ChannelName: channelName,
+		MessageID:   messageID,
 		Content:     content,
 		MediaURLs:   mediaURLs,
 		Timestamp:   time.Now().Unix(),

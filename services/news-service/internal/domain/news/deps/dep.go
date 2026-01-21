@@ -51,7 +51,7 @@ type DeliveredNewsRepository interface {
 // KafkaProducer defines interface for sending messages to Kafka
 type KafkaProducer interface {
 	// SendNewsDelivery sends batch news delivery event to bot service
-	SendNewsDelivery(ctx context.Context, newsID uint, userIDs []int64, channelID, channelName, content string, mediaURLs []string) error
+	SendNewsDelivery(ctx context.Context, newsID uint, userIDs []int64, channelID, channelName string, messageID int, content string, mediaURLs []string) error
 
 	// SendNewsDelete sends news delete event to bot service
 	SendNewsDelete(ctx context.Context, newsID uint, userIDs []int64) error

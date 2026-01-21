@@ -42,6 +42,7 @@ type NewsDeliveryEvent struct {
 	UserIDs     []int64  `json:"user_ids"`
 	ChannelID   string   `json:"channel_id"`
 	ChannelName string   `json:"channel_name"`
+	MessageID   int      `json:"message_id"` // Telegram message ID for copyMessage
 	Content     string   `json:"content"`
 	MediaURLs   []string `json:"media_urls"`
 	Timestamp   int64    `json:"timestamp"`

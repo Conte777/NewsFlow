@@ -110,7 +110,7 @@ func EncodePhotoFileID(photo *tg.Photo) string {
 		DCID:            photo.DCID,
 		ID:              photo.ID,
 		AccessHash:      photo.AccessHash,
-		FileReference:   photo.FileReference,
+		FileReference:   nil, // FileReference не включаем - он устаревает и вызывает ошибку "wrong file identifier"
 		PhotoSizeSource: PhotoSizeSourceThumbnail,
 		ThumbnailType:   thumbType,
 	}
@@ -136,7 +136,7 @@ func EncodeDocumentFileID(doc *tg.Document, fileType int) string {
 		DCID:          doc.DCID,
 		ID:            doc.ID,
 		AccessHash:    doc.AccessHash,
-		FileReference: doc.FileReference,
+		FileReference: nil, // FileReference не включаем - он устаревает и вызывает ошибку "wrong file identifier"
 	}
 
 	return encodeFileID(data)

@@ -15,6 +15,7 @@ import (
 type UseCase struct {
 	accountManager domain.AccountManager
 	channelRepo    channeldeps.ChannelRepository
+	msgIDCache     channeldeps.MessageIDCache
 	kafkaProducer  domain.KafkaProducer
 	logger         zerolog.Logger
 	metrics        *metrics.Metrics
@@ -24,6 +25,7 @@ type UseCase struct {
 func NewUseCase(
 	accountManager domain.AccountManager,
 	channelRepo channeldeps.ChannelRepository,
+	msgIDCache channeldeps.MessageIDCache,
 	kafkaProducer domain.KafkaProducer,
 	logger zerolog.Logger,
 	m *metrics.Metrics,
@@ -31,6 +33,7 @@ func NewUseCase(
 	return &UseCase{
 		accountManager: accountManager,
 		channelRepo:    channelRepo,
+		msgIDCache:     msgIDCache,
 		kafkaProducer:  kafkaProducer,
 		logger:         logger,
 		metrics:        m,
@@ -105,19 +108,25 @@ func (u *UseCase) CollectNews(ctx context.Context) error {
 
 		totalCollected += len(newsItems)
 
+		// Get lastProcessedMessageID from cache (synced with real-time handler)
+		lastProcessedID := channel.LastProcessedMessageID
+		if cachedID, found := u.msgIDCache.Get(channel.ChannelID); found && cachedID > lastProcessedID {
+			lastProcessedID = cachedID
+		}
+
 		// Track the highest message ID for this channel
-		maxMessageID := channel.LastProcessedMessageID
+		maxMessageID := lastProcessedID
 
 		// Filter out already processed messages and group albums
 		var newItems []domain.NewsItem
 		for _, news := range newsItems {
-			if news.MessageID <= channel.LastProcessedMessageID {
+			if news.MessageID <= lastProcessedID {
 				totalSkipped++
 				u.logger.Debug().
 					Str("channel_id", news.ChannelID).
 					Int("message_id", news.MessageID).
-					Int("last_processed", channel.LastProcessedMessageID).
-					Msg("Skipping already processed message")
+					Int("last_processed", lastProcessedID).
+					Msg("Skipping already processed message (checked against cache)")
 				continue
 			}
 			newItems = append(newItems, news)
@@ -132,6 +141,16 @@ func (u *UseCase) CollectNews(ctx context.Context) error {
 		grouped := u.groupAlbums(newItems)
 
 		for _, news := range grouped {
+			// CRITICAL: Update cache FIRST to prevent race condition with real-time handler
+			if !u.msgIDCache.SetIfGreater(channel.ChannelID, news.MessageID) {
+				// Real-time handler already processed a higher message ID
+				u.logger.Debug().
+					Str("channel_id", news.ChannelID).
+					Int("message_id", news.MessageID).
+					Msg("Skipping message - higher ID already in cache (real-time handler processed it)")
+				continue
+			}
+
 			kafkaStart := time.Now()
 			if err := u.kafkaProducer.SendNewsReceived(ctx, &news); err != nil {
 				u.logger.Error().Err(err).
@@ -151,21 +170,21 @@ func (u *UseCase) CollectNews(ctx context.Context) error {
 				Str("channel_id", news.ChannelID).
 				Int("message_id", news.MessageID).
 				Int("media_count", len(news.MediaURLs)).
-				Msg("News sent to Kafka")
+				Msg("News sent to Kafka (fallback collector)")
 		}
 
-		// Update LastProcessedMessageID if we processed any new messages
+		// Update DB with highest message ID (persistence for restarts)
 		if maxMessageID > channel.LastProcessedMessageID {
 			if err := u.channelRepo.UpdateLastProcessedMessageID(ctx, channel.ChannelID, maxMessageID); err != nil {
 				u.logger.Error().Err(err).
 					Str("channel_id", channel.ChannelID).
 					Int("message_id", maxMessageID).
-					Msg("Failed to update last processed message ID")
+					Msg("Failed to update last processed message ID in DB")
 			} else {
 				u.logger.Debug().
 					Str("channel_id", channel.ChannelID).
 					Int("last_processed_message_id", maxMessageID).
-					Msg("Updated last processed message ID")
+					Msg("Updated last processed message ID in DB")
 			}
 		}
 	}

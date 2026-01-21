@@ -1039,3 +1039,66 @@ func (h *Handlers) EditMessageText(ctx context.Context, userID int64, messageID 
 	h.logger.Info().Int64("user_id", userID).Int("message_id", messageID).Msg("Message edited successfully")
 	return nil
 }
+
+// CopyMessageAndGetID copies a message from a public channel to user's chat
+// Uses Bot API copyMessage method which handles media automatically
+func (h *Handlers) CopyMessageAndGetID(ctx context.Context, userID int64, fromChannelID string, messageID int, caption string) (int, error) {
+	h.logger.Info().
+		Int64("user_id", userID).
+		Str("from_channel", fromChannelID).
+		Int("message_id", messageID).
+		Msg("Copying message from channel")
+
+	var copiedMsgID int
+	var err error
+
+	for attempt := 1; attempt <= MaxRetries; attempt++ {
+		msgCtx, cancel := context.WithTimeout(ctx, RequestTimeout)
+
+		result, copyErr := h.bot.CopyMessage(msgCtx, &tgbot.CopyMessageParams{
+			ChatID:     userID,
+			FromChatID: fromChannelID,
+			MessageID:  messageID,
+			Caption:    caption,
+			ParseMode:  models.ParseModeHTML,
+		})
+		cancel()
+
+		if copyErr == nil && result != nil {
+			copiedMsgID = result.ID
+			break
+		}
+
+		err = copyErr
+		h.logger.Warn().
+			Int64("user_id", userID).
+			Str("from_channel", fromChannelID).
+			Int("message_id", messageID).
+			Int("attempt", attempt).
+			Err(err).
+			Msg("Failed to copy message, retrying")
+
+		if attempt < MaxRetries {
+			time.Sleep(RetryDelay * time.Duration(attempt))
+		}
+	}
+
+	if err != nil {
+		h.logger.Error().
+			Int64("user_id", userID).
+			Str("from_channel", fromChannelID).
+			Int("message_id", messageID).
+			Err(err).
+			Msg("Failed to copy message after retries")
+		return 0, fmt.Errorf("failed to copy message after %d attempts: %w", MaxRetries, err)
+	}
+
+	h.logger.Info().
+		Int64("user_id", userID).
+		Str("from_channel", fromChannelID).
+		Int("message_id", messageID).
+		Int("copied_message_id", copiedMsgID).
+		Msg("Message copied successfully")
+
+	return copiedMsgID, nil
+}

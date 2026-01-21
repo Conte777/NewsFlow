@@ -7,8 +7,10 @@ import (
 	"github.com/Conte777/NewsFlow/services/account-service/internal/domain/account"
 	"github.com/Conte777/NewsFlow/services/account-service/internal/domain/channel"
 	"github.com/Conte777/NewsFlow/services/account-service/internal/domain/news"
+	"github.com/Conte777/NewsFlow/services/account-service/internal/domain/news/handlers"
 	"github.com/Conte777/NewsFlow/services/account-service/internal/domain/qrauth"
 	"github.com/Conte777/NewsFlow/services/account-service/internal/infrastructure"
+	"github.com/Conte777/NewsFlow/services/account-service/internal/infrastructure/cache"
 	"go.uber.org/fx"
 )
 
@@ -23,6 +25,8 @@ func CreateApp() fx.Option {
 		// Domain modules
 		account.Module,
 		channel.Module,
+		cache.Module,    // Must be after channel.Module (depends on ChannelRepository)
+		handlers.Module, // Must be after cache.Module (depends on MessageIDCache)
 		news.Module,
 		qrauth.Module,
 	)

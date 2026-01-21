@@ -3,35 +3,35 @@ set -e
 
 psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<-EOSQL
     -- Create users
-    CREATE USER subscriptions_user WITH PASSWORD 'subscriptions_pass';
-    CREATE USER news_user WITH PASSWORD 'news_pass';
-    CREATE USER accounts_user WITH PASSWORD 'accounts_pass';
-    CREATE USER bot_user WITH PASSWORD 'bot_pass';
+    CREATE USER ${SUBSCRIPTIONS_DB_USER} WITH PASSWORD '${SUBSCRIPTIONS_DB_PASSWORD}';
+    CREATE USER ${NEWS_DB_USER} WITH PASSWORD '${NEWS_DB_PASSWORD}';
+    CREATE USER ${ACCOUNTS_DB_USER} WITH PASSWORD '${ACCOUNTS_DB_PASSWORD}';
+    CREATE USER ${BOT_DB_USER} WITH PASSWORD '${BOT_DB_PASSWORD}';
 
     -- Create databases
-    CREATE DATABASE subscriptions_db OWNER subscriptions_user;
-    CREATE DATABASE news_db OWNER news_user;
-    CREATE DATABASE accounts_db OWNER accounts_user;
-    CREATE DATABASE bot_db OWNER bot_user;
+    CREATE DATABASE subscriptions_db OWNER ${SUBSCRIPTIONS_DB_USER};
+    CREATE DATABASE news_db OWNER ${NEWS_DB_USER};
+    CREATE DATABASE accounts_db OWNER ${ACCOUNTS_DB_USER};
+    CREATE DATABASE bot_db OWNER ${BOT_DB_USER};
 
     -- Grant privileges
-    GRANT ALL PRIVILEGES ON DATABASE subscriptions_db TO subscriptions_user;
-    GRANT ALL PRIVILEGES ON DATABASE news_db TO news_user;
-    GRANT ALL PRIVILEGES ON DATABASE accounts_db TO accounts_user;
-    GRANT ALL PRIVILEGES ON DATABASE bot_db TO bot_user;
+    GRANT ALL PRIVILEGES ON DATABASE subscriptions_db TO ${SUBSCRIPTIONS_DB_USER};
+    GRANT ALL PRIVILEGES ON DATABASE news_db TO ${NEWS_DB_USER};
+    GRANT ALL PRIVILEGES ON DATABASE accounts_db TO ${ACCOUNTS_DB_USER};
+    GRANT ALL PRIVILEGES ON DATABASE bot_db TO ${BOT_DB_USER};
 
     -- Schema privileges
     \c subscriptions_db
-    GRANT ALL ON SCHEMA public TO subscriptions_user;
+    GRANT ALL ON SCHEMA public TO ${SUBSCRIPTIONS_DB_USER};
 
     \c news_db
-    GRANT ALL ON SCHEMA public TO news_user;
+    GRANT ALL ON SCHEMA public TO ${NEWS_DB_USER};
 
     \c accounts_db
-    GRANT ALL ON SCHEMA public TO accounts_user;
+    GRANT ALL ON SCHEMA public TO ${ACCOUNTS_DB_USER};
 
     \c bot_db
-    GRANT ALL ON SCHEMA public TO bot_user;
+    GRANT ALL ON SCHEMA public TO ${BOT_DB_USER};
 EOSQL
 
 echo "Databases and users created successfully!"

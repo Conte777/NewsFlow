@@ -6,6 +6,24 @@ import (
 	"github.com/Conte777/NewsFlow/services/account-service/internal/domain/channel/entities"
 )
 
+// MessageIDCache provides in-memory cache for LastProcessedMessageID
+// to prevent race conditions between real-time handler and fallback collector
+type MessageIDCache interface {
+	// Get returns the cached lastProcessedMessageID for a channel
+	// Returns (messageID, true) if found, (0, false) if not cached
+	Get(channelID string) (int, bool)
+
+	// SetIfGreater atomically updates the cache only if newMessageID > current
+	// Returns true if the value was updated
+	SetIfGreater(channelID string, newMessageID int) bool
+
+	// Delete removes a channel from the cache
+	Delete(channelID string)
+
+	// LoadFromDB loads all channel message IDs from the database into the cache
+	LoadFromDB(ctx context.Context) error
+}
+
 // ChannelRepository defines interface for channel subscription storage
 type ChannelRepository interface {
 	RemoveChannel(ctx context.Context, channelID string) error

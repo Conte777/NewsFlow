@@ -49,6 +49,7 @@ func (h *Handlers) HandleNewsDelivery(ctx context.Context, data []byte) error {
 			UserID:      userID,
 			ChannelID:   event.ChannelID,
 			ChannelName: event.ChannelName,
+			MessageID:   event.MessageID,
 			Content:     event.Content,
 			MediaURLs:   event.MediaURLs,
 			Timestamp:   event.Timestamp,

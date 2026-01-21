@@ -60,8 +60,8 @@ services:
       # Database Configuration
       DATABASE_HOST: postgres
       DATABASE_PORT: "5432"
-      DATABASE_USER: accounts_user
-      DATABASE_PASSWORD: accounts_pass
+      DATABASE_USER: ${ACCOUNTS_DB_USER}
+      DATABASE_PASSWORD: ${ACCOUNTS_DB_PASSWORD}
       DATABASE_NAME: accounts_db
       DATABASE_SSLMODE: disable
 
@@ -119,8 +119,8 @@ services:
     environment:
       DATABASE_HOST: postgres
       DATABASE_PORT: "5432"
-      DATABASE_USER: subscriptions_user
-      DATABASE_PASSWORD: subscriptions_pass
+      DATABASE_USER: ${SUBSCRIPTIONS_DB_USER}
+      DATABASE_PASSWORD: ${SUBSCRIPTIONS_DB_PASSWORD}
       DATABASE_NAME: subscriptions_db
       DATABASE_SSLMODE: disable
       KAFKA_BROKERS: kafka:9092
@@ -155,12 +155,14 @@ services:
     environment:
       DATABASE_HOST: postgres
       DATABASE_PORT: "5432"
-      DATABASE_USER: news_user
-      DATABASE_PASSWORD: news_pass
+      DATABASE_USER: ${NEWS_DB_USER}
+      DATABASE_PASSWORD: ${NEWS_DB_PASSWORD}
       DATABASE_NAME: news_db
       DATABASE_SSLMODE: disable
       KAFKA_BROKERS: kafka:9092
       KAFKA_GROUP_ID: news-service-group
+      KAFKA_TOPIC_NEWS_DELIVERED: news.delivered
+      KAFKA_GROUP_ID_DELIVERED: news-service-delivered-group
       SERVICE_NAME: news-service
       SERVICE_PORT: "8083"
       SUBSCRIPTION_SERVICE_URL: http://subscription-service:8082
@@ -192,8 +194,8 @@ services:
       # Database Configuration
       DATABASE_HOST: postgres
       DATABASE_PORT: "5432"
-      DATABASE_USER: bot_user
-      DATABASE_PASSWORD: bot_pass
+      DATABASE_USER: ${BOT_DB_USER}
+      DATABASE_PASSWORD: ${BOT_DB_PASSWORD}
       DATABASE_NAME: bot_db
       DATABASE_SSLMODE: disable
       # Kafka Configuration
@@ -202,6 +204,8 @@ services:
       # Saga workflow topics (consumed)
       KAFKA_TOPIC_SUBSCRIPTION_CONFIRMED: subscription.confirmed
       KAFKA_TOPIC_UNSUBSCRIPTION_CONFIRMED: unsubscription.confirmed
+      # Delivery confirmation (produced)
+      KAFKA_TOPIC_NEWS_DELIVERED: news.delivered
       SUBSCRIPTION_SERVICE_GRPC_ADDR: subscription-service:50051
       SERVICE_NAME: bot-service
       SERVICE_PORT: "8081"
@@ -221,10 +225,19 @@ services:
     image: postgres:15-alpine
     container_name: telegram-news-postgres
     environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres_admin_pass
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB: postgres
       PGDATA: /var/lib/postgresql/data/pgdata
+      # DB credentials for init script
+      ACCOUNTS_DB_USER: ${ACCOUNTS_DB_USER}
+      ACCOUNTS_DB_PASSWORD: ${ACCOUNTS_DB_PASSWORD}
+      SUBSCRIPTIONS_DB_USER: ${SUBSCRIPTIONS_DB_USER}
+      SUBSCRIPTIONS_DB_PASSWORD: ${SUBSCRIPTIONS_DB_PASSWORD}
+      NEWS_DB_USER: ${NEWS_DB_USER}
+      NEWS_DB_PASSWORD: ${NEWS_DB_PASSWORD}
+      BOT_DB_USER: ${BOT_DB_USER}
+      BOT_DB_PASSWORD: ${BOT_DB_PASSWORD}
     ports:
       - "5432:5432"
     networks:

@@ -148,17 +148,22 @@ func (uc *UseCase) SendNews(ctx context.Context, news *entities.NewsMessage) err
 		Str("channel_id", news.ChannelID).
 		Msg("Sending news to user")
 
-	// Format message
-	message := fmt.Sprintf("📰 <b>%s</b>\n\n%s", news.ChannelName, news.Content)
+	// Format caption/message
+	caption := fmt.Sprintf("📰 <b>%s</b>\n\n%s", news.ChannelName, news.Content)
 
 	// Send with or without media and get telegram message ID
 	var telegramMsgID int
 	var err error
 
-	if len(news.MediaURLs) > 0 {
-		telegramMsgID, err = uc.sender.SendMessageWithMediaAndGetID(ctx, news.UserID, message, news.MediaURLs)
+	// Use copyMessage for messages with media (more reliable than file_id)
+	if len(news.MediaURLs) > 0 && news.MessageID > 0 {
+		telegramMsgID, err = uc.sender.CopyMessageAndGetID(ctx, news.UserID, news.ChannelID, news.MessageID, caption)
+	} else if len(news.MediaURLs) == 0 {
+		// Text-only message
+		telegramMsgID, err = uc.sender.SendMessageAndGetID(ctx, news.UserID, caption)
 	} else {
-		telegramMsgID, err = uc.sender.SendMessageAndGetID(ctx, news.UserID, message)
+		// Fallback for media without MessageID (shouldn't happen normally)
+		telegramMsgID, err = uc.sender.SendMessageWithMediaAndGetID(ctx, news.UserID, caption, news.MediaURLs)
 	}
 
 	if err != nil {
@@ -191,6 +196,15 @@ func (uc *UseCase) SendNews(ctx context.Context, news *entities.NewsMessage) err
 				Int("telegram_message_id", telegramMsgID).
 				Msg("Delivered message record saved")
 		}
+	}
+
+	// Send delivery confirmation to news-service
+	if err := uc.producer.SendDeliveryConfirmation(ctx, news.ID, news.UserID); err != nil {
+		uc.logger.Error().Err(err).
+			Uint("news_id", news.ID).
+			Int64("user_id", news.UserID).
+			Msg("Failed to send delivery confirmation")
+		// Don't fail the delivery, just log the error
 	}
 
 	return nil

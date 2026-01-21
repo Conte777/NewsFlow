@@ -160,7 +160,7 @@ func (u *UseCase) DeliverNewsToUsers(ctx context.Context, newsID uint, userIDs [
 		return nil
 	}
 
-	if err := u.kafkaProducer.SendNewsDelivery(ctx, newsID, pendingUserIDs, news.ChannelID, news.ChannelName, news.Content, mediaURLs); err != nil {
+	if err := u.kafkaProducer.SendNewsDelivery(ctx, newsID, pendingUserIDs, news.ChannelID, news.ChannelName, news.MessageID, news.Content, mediaURLs); err != nil {
 		u.logger.Error().Err(err).
 			Uint("news_id", newsID).
 			Int("pending_users_count", len(pendingUserIDs)).

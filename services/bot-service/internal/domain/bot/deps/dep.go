@@ -25,6 +25,10 @@ type TelegramSender interface {
 	// SendMessageWithMediaAndGetID sends a message with media to user and returns the telegram message ID
 	SendMessageWithMediaAndGetID(ctx context.Context, userID int64, text string, mediaURLs []string) (messageID int, err error)
 
+	// CopyMessageAndGetID copies a message from a channel to user's chat and returns the telegram message ID
+	// Uses Bot API copyMessage method - works for public channels
+	CopyMessageAndGetID(ctx context.Context, userID int64, fromChannelID string, messageID int, caption string) (copiedMessageID int, err error)
+
 	// DeleteMessage deletes a message from user's chat
 	DeleteMessage(ctx context.Context, userID int64, messageID int) error
 
@@ -39,6 +43,9 @@ type SubscriptionEventProducer interface {
 
 	// SendSubscriptionDeleted sends subscription deleted event
 	SendSubscriptionDeleted(ctx context.Context, userID int64, channelID string) error
+
+	// SendDeliveryConfirmation sends delivery confirmation event to news-service
+	SendDeliveryConfirmation(ctx context.Context, newsID uint, userID int64) error
 
 	// Close closes the producer
 	Close() error

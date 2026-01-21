@@ -55,6 +55,9 @@ type KafkaConfig struct {
 	// Saga: Confirmation flow (consumed for user notifications)
 	TopicSubscriptionConfirmed   string // subscription-service -> bot-service
 	TopicUnsubscriptionConfirmed string // subscription-service -> bot-service
+
+	// Delivery confirmation (produced to news-service)
+	TopicNewsDelivered string // bot-service -> news-service
 }
 
 // LoggingConfig holds logging configuration
@@ -120,6 +123,8 @@ func Load() (*Config, error) {
 			// Saga: Confirmation flow
 			TopicSubscriptionConfirmed:   getEnv("KAFKA_TOPIC_SUBSCRIPTION_CONFIRMED", "subscription.confirmed"),
 			TopicUnsubscriptionConfirmed: getEnv("KAFKA_TOPIC_UNSUBSCRIPTION_CONFIRMED", "unsubscription.confirmed"),
+			// Delivery confirmation
+			TopicNewsDelivered: getEnv("KAFKA_TOPIC_NEWS_DELIVERED", "news.delivered"),
 		},
 		GRPC: GRPCConfig{
 			SubscriptionServiceAddr: getEnv("SUBSCRIPTION_SERVICE_GRPC_ADDR", "localhost:50051"),

@@ -73,6 +73,16 @@ func (p *Producer) SendSubscriptionDeleted(ctx context.Context, userID int64, ch
 	return p.sendEvent(ctx, p.config.TopicUnsubscriptionRequested, event)
 }
 
+// SendDeliveryConfirmation sends delivery confirmation event to news-service
+func (p *Producer) SendDeliveryConfirmation(ctx context.Context, newsID uint, userID int64) error {
+	event := map[string]interface{}{
+		"newsId":    newsID,
+		"userId":    userID,
+		"timestamp": time.Now().Unix(),
+	}
+	return p.sendEvent(ctx, p.config.TopicNewsDelivered, event)
+}
+
 func (p *Producer) sendEvent(ctx context.Context, topic string, event interface{}) error {
 	jsonData, err := json.Marshal(event)
 	if err != nil {

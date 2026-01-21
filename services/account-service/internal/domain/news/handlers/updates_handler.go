@@ -31,6 +31,7 @@ type pendingAlbum struct {
 // NewsUpdateHandler handles real-time news updates from Telegram
 type NewsUpdateHandler struct {
 	channelRepo channeldeps.ChannelRepository
+	msgIDCache  channeldeps.MessageIDCache
 	producer    domain.KafkaProducer
 	logger      zerolog.Logger
 	metrics     *metrics.Metrics
@@ -48,12 +49,14 @@ type NewsUpdateHandler struct {
 // NewNewsUpdateHandler creates a new handler for processing Telegram channel updates
 func NewNewsUpdateHandler(
 	channelRepo channeldeps.ChannelRepository,
+	msgIDCache channeldeps.MessageIDCache,
 	producer domain.KafkaProducer,
 	logger zerolog.Logger,
 	m *metrics.Metrics,
 ) *NewsUpdateHandler {
 	h := &NewsUpdateHandler{
 		channelRepo: channelRepo,
+		msgIDCache:  msgIDCache,
 		producer:    producer,
 		logger:      logger.With().Str("component", "news_update_handler").Logger(),
 		metrics:     m,
@@ -104,18 +107,33 @@ func (h *NewsUpdateHandler) OnNewChannelMessage(
 		return nil
 	}
 
+	// Check message ID against in-memory cache first (prevents race condition with fallback collector)
+	if lastProcessedID, found := h.msgIDCache.Get(channelID); found {
+		if msg.ID <= lastProcessedID {
+			h.logger.Debug().
+				Str("channel_id", channelID).
+				Int("message_id", msg.ID).
+				Int("last_processed", lastProcessedID).
+				Msg("skipping already processed message (from cache)")
+			return nil
+		}
+	}
+
 	channel, err := h.channelRepo.GetChannel(ctx, channelID)
 	if err != nil {
 		h.logger.Error().Err(err).Str("channel_id", channelID).Msg("failed to get channel")
 		return nil
 	}
 
+	// Double-check against DB value (cache might not have this channel yet)
 	if msg.ID <= channel.LastProcessedMessageID {
+		// Update cache with DB value for future checks
+		h.msgIDCache.SetIfGreater(channelID, channel.LastProcessedMessageID)
 		h.logger.Debug().
 			Str("channel_id", channelID).
 			Int("message_id", msg.ID).
 			Int("last_processed", channel.LastProcessedMessageID).
-			Msg("skipping already processed message")
+			Msg("skipping already processed message (from DB)")
 		return nil
 	}
 
@@ -243,6 +261,16 @@ func (h *NewsUpdateHandler) combineAlbumItems(items []domain.NewsItem) domain.Ne
 
 // sendNewsItem sends a news item to Kafka and updates tracking
 func (h *NewsUpdateHandler) sendNewsItem(ctx context.Context, newsItem *domain.NewsItem, channelID string, msgID int) {
+	// CRITICAL: Update cache FIRST (instant, prevents race condition with fallback collector)
+	if !h.msgIDCache.SetIfGreater(channelID, msgID) {
+		// Another goroutine already processed a higher message ID
+		h.logger.Debug().
+			Str("channel_id", channelID).
+			Int("message_id", msgID).
+			Msg("skipping message - higher ID already in cache")
+		return
+	}
+
 	if err := h.producer.SendNewsReceived(ctx, newsItem); err != nil {
 		h.logger.Error().Err(err).
 			Str("channel_id", channelID).
@@ -252,11 +280,12 @@ func (h *NewsUpdateHandler) sendNewsItem(ctx context.Context, newsItem *domain.N
 		return
 	}
 
+	// Update DB asynchronously (persistence for restarts)
 	if err := h.channelRepo.UpdateLastProcessedMessageID(ctx, channelID, msgID); err != nil {
 		h.logger.Error().Err(err).
 			Str("channel_id", channelID).
 			Int("message_id", msgID).
-			Msg("failed to update last processed message ID")
+			Msg("failed to update last processed message ID in DB")
 	}
 
 	h.processedCount.Add(1)

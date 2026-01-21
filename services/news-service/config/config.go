@@ -31,11 +31,13 @@ type DatabaseConfig struct {
 
 // KafkaConfig holds Kafka configuration
 type KafkaConfig struct {
-	Brokers           []string
-	GroupID           string
-	GroupIDDeleted    string
-	GroupIDEdited     string
-	TopicNewsReceived string
+	Brokers            []string
+	GroupID            string
+	GroupIDDeleted     string
+	GroupIDEdited      string
+	GroupIDDelivered   string
+	TopicNewsReceived  string
+	TopicNewsDelivered string
 }
 
 // LoggingConfig holds logging configuration
@@ -97,11 +99,13 @@ func Load() (*Config, error) {
 			SSLMode:  getEnv("DATABASE_SSLMODE", "disable"),
 		},
 		Kafka: KafkaConfig{
-			Brokers:           strings.Split(getEnv("KAFKA_BROKERS", "localhost:9093"), ","),
-			GroupID:           getEnv("KAFKA_GROUP_ID", "news-service-group"),
-			GroupIDDeleted:    getEnv("KAFKA_GROUP_ID_DELETED", "news-service-deleted-group"),
-			GroupIDEdited:     getEnv("KAFKA_GROUP_ID_EDITED", "news-service-edited-group"),
-			TopicNewsReceived: getEnv("KAFKA_TOPIC_NEWS_RECEIVED", "news.received"),
+			Brokers:            strings.Split(getEnv("KAFKA_BROKERS", "localhost:9093"), ","),
+			GroupID:            getEnv("KAFKA_GROUP_ID", "news-service-group"),
+			GroupIDDeleted:     getEnv("KAFKA_GROUP_ID_DELETED", "news-service-deleted-group"),
+			GroupIDEdited:      getEnv("KAFKA_GROUP_ID_EDITED", "news-service-edited-group"),
+			GroupIDDelivered:   getEnv("KAFKA_GROUP_ID_DELIVERED", "news-service-delivered-group"),
+			TopicNewsReceived:  getEnv("KAFKA_TOPIC_NEWS_RECEIVED", "news.received"),
+			TopicNewsDelivered: getEnv("KAFKA_TOPIC_NEWS_DELIVERED", "news.delivered"),
 		},
 		Logging: LoggingConfig{
 			Level: getEnv("LOG_LEVEL", "info"),
