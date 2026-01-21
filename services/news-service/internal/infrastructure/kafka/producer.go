@@ -50,7 +50,6 @@ type Producer struct {
 func NewProducer(cfg *config.KafkaConfig, logger zerolog.Logger) (deps.KafkaProducer, error) {
 	writer := &kafka.Writer{
 		Addr:         kafka.TCP(cfg.Brokers...),
-		Topic:        topicNewsDelivery,
 		Balancer:     &kafka.LeastBytes{},
 		BatchTimeout: 10 * time.Millisecond,
 		RequiredAcks: kafka.RequireOne,
@@ -58,7 +57,6 @@ func NewProducer(cfg *config.KafkaConfig, logger zerolog.Logger) (deps.KafkaProd
 
 	logger.Info().
 		Strs("brokers", cfg.Brokers).
-		Str("topic", topicNewsDelivery).
 		Msg("Kafka producer initialized")
 
 	return &Producer{
@@ -87,6 +85,7 @@ func (p *Producer) SendNewsDelivery(ctx context.Context, newsID uint, userIDs []
 	key := fmt.Sprintf("news-%d", newsID)
 
 	err = p.writer.WriteMessages(ctx, kafka.Message{
+		Topic: topicNewsDelivery,
 		Key:   []byte(key),
 		Value: data,
 	})
