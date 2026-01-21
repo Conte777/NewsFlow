@@ -38,21 +38,36 @@ func (h *Handlers) HandleNewsDelivery(ctx context.Context, data []byte) error {
 		Uint("news_id", event.NewsID).
 		Int("users_count", len(event.UserIDs)).
 		Str("channel_id", event.ChannelID).
+		Int("media_count", len(event.MediaURLs)).
 		Msg("Processing batch news delivery event")
+
+	// Download files once for all users
+	var downloadedFiles []*entities.DownloadedFile
+	if len(event.MediaURLs) > 0 {
+		var err error
+		downloadedFiles, err = h.uc.DownloadFiles(ctx, event.MediaURLs)
+		if err != nil {
+			h.logger.Error().Err(err).Msg("Failed to download media files")
+			// Continue without media - will try URL fallback in UseCase
+		} else {
+			h.logger.Info().Int("downloaded_count", len(downloadedFiles)).Msg("Media files downloaded for batch delivery")
+		}
+	}
 
 	var lastErr error
 	successCount := 0
 
 	for _, userID := range event.UserIDs {
 		news := &entities.NewsMessage{
-			ID:          event.NewsID,
-			UserID:      userID,
-			ChannelID:   event.ChannelID,
-			ChannelName: event.ChannelName,
-			MessageID:   event.MessageID,
-			Content:     event.Content,
-			MediaURLs:   event.MediaURLs,
-			Timestamp:   event.Timestamp,
+			ID:              event.NewsID,
+			UserID:          userID,
+			ChannelID:       event.ChannelID,
+			ChannelName:     event.ChannelName,
+			MessageID:       event.MessageID,
+			Content:         event.Content,
+			MediaURLs:       event.MediaURLs,
+			DownloadedFiles: downloadedFiles, // Pre-downloaded files for all users
+			Timestamp:       event.Timestamp,
 		}
 
 		if err := h.uc.SendNews(ctx, news); err != nil {
@@ -77,6 +92,7 @@ func (h *Handlers) HandleNewsDelivery(ctx context.Context, data []byte) error {
 		Int("total_count", len(event.UserIDs)).
 		Msg("Batch news delivery completed")
 
+	// Files will be garbage collected after this function returns
 	return lastErr
 }
 

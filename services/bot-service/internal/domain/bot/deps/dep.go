@@ -25,6 +25,12 @@ type TelegramSender interface {
 	// SendMessageWithMediaAndGetID sends a message with media to user and returns the telegram message ID
 	SendMessageWithMediaAndGetID(ctx context.Context, userID int64, text string, mediaURLs []string) (messageID int, err error)
 
+	// SendMessageWithFilesAndGetID sends downloaded files to user and returns the telegram message ID
+	SendMessageWithFilesAndGetID(ctx context.Context, userID int64, text string, files []*entities.DownloadedFile) (messageID int, err error)
+
+	// DownloadFiles downloads files from S3 URLs
+	DownloadFiles(ctx context.Context, urls []string) ([]*entities.DownloadedFile, error)
+
 	// CopyMessageAndGetID copies a message from a channel to user's chat and returns the telegram message ID
 	// Uses Bot API copyMessage method - works for public channels
 	CopyMessageAndGetID(ctx context.Context, userID int64, fromChannelID string, messageID int, caption string) (copiedMessageID int, err error)

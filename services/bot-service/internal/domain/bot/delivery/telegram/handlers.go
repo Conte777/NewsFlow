@@ -2,8 +2,10 @@
 package telegram
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"mime"
 	"net/http"
 	"net/url"
@@ -16,6 +18,7 @@ import (
 	"github.com/rs/zerolog"
 
 	"github.com/Conte777/NewsFlow/services/bot-service/internal/domain/bot/dto"
+	"github.com/Conte777/NewsFlow/services/bot-service/internal/domain/bot/entities"
 	"github.com/Conte777/NewsFlow/services/bot-service/internal/domain/bot/usecase/buissines"
 )
 
@@ -24,6 +27,7 @@ const (
 	MaxMessageLength    = 4096
 	MessageSplitTimeout = 2 * time.Second
 	RequestTimeout      = 30 * time.Second
+	DownloadTimeout     = 120 * time.Second // Timeout for downloading files from S3
 	MaxMediaGroupSize   = 10
 	MaxRetries          = 3
 	RetryDelay          = 2 * time.Second
@@ -1101,4 +1105,187 @@ func (h *Handlers) CopyMessageAndGetID(ctx context.Context, userID int64, fromCh
 		Msg("Message copied successfully")
 
 	return copiedMsgID, nil
+}
+
+// DownloadFiles downloads multiple files from S3 URLs
+func (h *Handlers) DownloadFiles(ctx context.Context, urls []string) ([]*entities.DownloadedFile, error) {
+	if len(urls) == 0 {
+		return nil, nil
+	}
+
+	h.logger.Info().Int("url_count", len(urls)).Msg("Downloading files from S3")
+
+	files := make([]*entities.DownloadedFile, 0, len(urls))
+
+	for _, fileURL := range urls {
+		file, err := h.downloadFile(ctx, fileURL)
+		if err != nil {
+			h.logger.Warn().Err(err).Str("url", fileURL).Msg("Failed to download file, skipping")
+			continue
+		}
+		files = append(files, file)
+	}
+
+	h.logger.Info().Int("downloaded_count", len(files)).Int("total_count", len(urls)).Msg("Files download completed")
+
+	return files, nil
+}
+
+func (h *Handlers) downloadFile(ctx context.Context, fileURL string) (*entities.DownloadedFile, error) {
+	downloadCtx, cancel := context.WithTimeout(ctx, DownloadTimeout)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(downloadCtx, "GET", fileURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("create request failed: %w", err)
+	}
+
+	resp, err := h.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("download failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("S3 returned status %d", resp.StatusCode)
+	}
+
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("read body failed: %w", err)
+	}
+
+	filename := extractFilename(fileURL)
+	contentType := resp.Header.Get("Content-Type")
+	mediaType := classifyMediaTypeFromContentType(contentType, filename)
+
+	h.logger.Debug().
+		Str("url", fileURL).
+		Str("filename", filename).
+		Str("content_type", contentType).
+		Str("media_type", mediaType).
+		Int("size_bytes", len(data)).
+		Msg("File downloaded successfully")
+
+	return &entities.DownloadedFile{
+		Data:        data,
+		Filename:    filename,
+		ContentType: contentType,
+		MediaType:   mediaType,
+	}, nil
+}
+
+// extractFilename extracts filename from URL
+func extractFilename(fileURL string) string {
+	parsedURL, err := url.Parse(fileURL)
+	if err != nil {
+		return "file"
+	}
+	filename := path.Base(parsedURL.Path)
+	if filename == "" || filename == "." || filename == "/" {
+		return "file"
+	}
+	return filename
+}
+
+// classifyMediaTypeFromContentType determines media type from content-type header
+func classifyMediaTypeFromContentType(contentType, filename string) string {
+	switch {
+	case strings.HasPrefix(contentType, "image/"):
+		return "photo"
+	case strings.HasPrefix(contentType, "video/"):
+		return "video"
+	}
+
+	ext := strings.ToLower(path.Ext(filename))
+	switch ext {
+	case ".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp":
+		return "photo"
+	case ".mp4", ".avi", ".mov", ".mkv", ".webm":
+		return "video"
+	default:
+		return "document"
+	}
+}
+
+// SendMessageWithFilesAndGetID sends downloaded files to user and returns telegram message ID
+func (h *Handlers) SendMessageWithFilesAndGetID(ctx context.Context, userID int64, text string, files []*entities.DownloadedFile) (int, error) {
+	if len(files) == 0 {
+		return h.SendMessageAndGetID(ctx, userID, text)
+	}
+
+	h.logger.Info().Int64("user_id", userID).Int("file_count", len(files)).Msg("Sending message with downloaded files")
+
+	// Send first file with caption
+	msgID, err := h.sendFileAndGetID(ctx, userID, text, files[0])
+	if err != nil {
+		return 0, err
+	}
+
+	// Send remaining files without caption
+	for i := 1; i < len(files); i++ {
+		if _, sendErr := h.sendFileAndGetID(ctx, userID, "", files[i]); sendErr != nil {
+			h.logger.Error().Err(sendErr).Int64("user_id", userID).Int("file_index", i).Msg("Failed to send additional file")
+		}
+
+		if i < len(files)-1 {
+			select {
+			case <-ctx.Done():
+				return msgID, ctx.Err()
+			case <-time.After(MessageSplitTimeout):
+			}
+		}
+	}
+
+	return msgID, nil
+}
+
+func (h *Handlers) sendFileAndGetID(ctx context.Context, userID int64, text string, file *entities.DownloadedFile) (int, error) {
+	msgCtx, cancel := context.WithTimeout(ctx, RequestTimeout)
+	defer cancel()
+
+	var msg *models.Message
+	var err error
+
+	switch file.MediaType {
+	case "photo":
+		msg, err = h.bot.SendPhoto(msgCtx, &tgbot.SendPhotoParams{
+			ChatID:    userID,
+			Photo:     &models.InputFileUpload{Filename: file.Filename, Data: bytes.NewReader(file.Data)},
+			Caption:   text,
+			ParseMode: models.ParseModeHTML,
+		})
+	case "video":
+		msg, err = h.bot.SendVideo(msgCtx, &tgbot.SendVideoParams{
+			ChatID:    userID,
+			Video:     &models.InputFileUpload{Filename: file.Filename, Data: bytes.NewReader(file.Data)},
+			Caption:   text,
+			ParseMode: models.ParseModeHTML,
+		})
+	default:
+		msg, err = h.bot.SendDocument(msgCtx, &tgbot.SendDocumentParams{
+			ChatID:    userID,
+			Document:  &models.InputFileUpload{Filename: file.Filename, Data: bytes.NewReader(file.Data)},
+			Caption:   text,
+			ParseMode: models.ParseModeHTML,
+		})
+	}
+
+	if err != nil {
+		h.logger.Error().Err(err).
+			Int64("user_id", userID).
+			Str("media_type", file.MediaType).
+			Str("filename", file.Filename).
+			Msg("Failed to send file")
+		return 0, fmt.Errorf("failed to send %s: %w", file.MediaType, err)
+	}
+
+	h.logger.Debug().
+		Int64("user_id", userID).
+		Int("message_id", msg.ID).
+		Str("media_type", file.MediaType).
+		Str("filename", file.Filename).
+		Msg("File sent successfully")
+
+	return msg.ID, nil
 }

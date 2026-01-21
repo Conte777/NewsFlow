@@ -46,6 +46,15 @@ func (uc *UseCase) SetSender(sender deps.TelegramSender) {
 	uc.sender = sender
 }
 
+// DownloadFiles downloads files from S3 URLs using TelegramSender
+// This allows Kafka handlers to download files once for batch delivery
+func (uc *UseCase) DownloadFiles(ctx context.Context, urls []string) ([]*entities.DownloadedFile, error) {
+	if uc.sender == nil {
+		return nil, fmt.Errorf("TelegramSender is not set")
+	}
+	return uc.sender.DownloadFiles(ctx, urls)
+}
+
 // HandleStart handles /start command
 func (uc *UseCase) HandleStart(ctx context.Context, req *dto.StartCommandRequest) (*dto.CommandResponse, error) {
 	uc.logger.Info().
@@ -146,6 +155,8 @@ func (uc *UseCase) SendNews(ctx context.Context, news *entities.NewsMessage) err
 		Uint("news_id", news.ID).
 		Int64("user_id", news.UserID).
 		Str("channel_id", news.ChannelID).
+		Int("downloaded_files_count", len(news.DownloadedFiles)).
+		Int("media_urls_count", len(news.MediaURLs)).
 		Msg("Sending news to user")
 
 	// Format caption/message
@@ -155,15 +166,15 @@ func (uc *UseCase) SendNews(ctx context.Context, news *entities.NewsMessage) err
 	var telegramMsgID int
 	var err error
 
-	// Use copyMessage for messages with media (more reliable than file_id)
-	if len(news.MediaURLs) > 0 && news.MessageID > 0 {
-		telegramMsgID, err = uc.sender.CopyMessageAndGetID(ctx, news.UserID, news.ChannelID, news.MessageID, caption)
-	} else if len(news.MediaURLs) == 0 {
+	if len(news.DownloadedFiles) > 0 {
+		// Send pre-downloaded files (preferred - works with any S3)
+		telegramMsgID, err = uc.sender.SendMessageWithFilesAndGetID(ctx, news.UserID, caption, news.DownloadedFiles)
+	} else if len(news.MediaURLs) > 0 {
+		// Fallback: try URL (for public S3 or file_id)
+		telegramMsgID, err = uc.sender.SendMessageWithMediaAndGetID(ctx, news.UserID, caption, news.MediaURLs)
+	} else {
 		// Text-only message
 		telegramMsgID, err = uc.sender.SendMessageAndGetID(ctx, news.UserID, caption)
-	} else {
-		// Fallback for media without MessageID (shouldn't happen normally)
-		telegramMsgID, err = uc.sender.SendMessageWithMediaAndGetID(ctx, news.UserID, caption, news.MediaURLs)
 	}
 
 	if err != nil {
