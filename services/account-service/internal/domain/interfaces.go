@@ -141,3 +141,13 @@ type SubscriptionEventHandler interface {
 	// HandleSubscriptionDeleted handles subscription deleted event
 	HandleSubscriptionDeleted(ctx context.Context, userID int64, channelID string) error
 }
+
+// MediaUploader uploads media files to S3 storage
+type MediaUploader interface {
+	// UploadMedia uploads media data to S3 and returns public URL
+	UploadMedia(ctx context.Context, channelID string, messageID int, filename string, contentType string, data []byte) (string, error)
+}
+
+// MediaDownloadFunc downloads media from Telegram and returns data with metadata
+// Returns: data, filename, contentType, error
+type MediaDownloadFunc func(ctx context.Context, media interface{}) ([]byte, string, string, error)

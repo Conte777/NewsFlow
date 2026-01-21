@@ -6,6 +6,7 @@ import (
 	"github.com/Conte777/NewsFlow/services/account-service/internal/infrastructure/kafka"
 	"github.com/Conte777/NewsFlow/services/account-service/internal/infrastructure/logger"
 	"github.com/Conte777/NewsFlow/services/account-service/internal/infrastructure/metrics"
+	"github.com/Conte777/NewsFlow/services/account-service/internal/infrastructure/s3"
 	"github.com/Conte777/NewsFlow/services/account-service/internal/infrastructure/telegram"
 	"go.uber.org/fx"
 )
@@ -16,6 +17,7 @@ var Module = fx.Module("infrastructure",
 	logger.Module,
 	database.Module, // Must be before telegram (telegram depends on *gorm.DB)
 	metrics.Module,
+	s3.Module, // S3/MinIO for media storage
 	kafka.Module,
 	telegram.Module,
 	httpfx.Module,

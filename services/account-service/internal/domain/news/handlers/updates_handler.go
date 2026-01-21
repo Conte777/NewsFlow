@@ -13,7 +13,6 @@ import (
 	"github.com/Conte777/NewsFlow/services/account-service/internal/domain"
 	channeldeps "github.com/Conte777/NewsFlow/services/account-service/internal/domain/channel/deps"
 	"github.com/Conte777/NewsFlow/services/account-service/internal/infrastructure/metrics"
-	"github.com/Conte777/NewsFlow/services/account-service/internal/infrastructure/telegram/fileid"
 )
 
 const (
@@ -36,6 +35,11 @@ type NewsUpdateHandler struct {
 	logger      zerolog.Logger
 	metrics     *metrics.Metrics
 
+	// Media processing
+	mediaUploader    domain.MediaUploader
+	mediaDownloadFn  domain.MediaDownloadFunc
+	mediaDownloadMu  sync.RWMutex
+
 	// Album buffering for grouping media
 	albumBuffer map[int64]*pendingAlbum
 	albumMu     sync.Mutex
@@ -53,18 +57,36 @@ func NewNewsUpdateHandler(
 	producer domain.KafkaProducer,
 	logger zerolog.Logger,
 	m *metrics.Metrics,
+	mediaUploader domain.MediaUploader,
 ) *NewsUpdateHandler {
 	h := &NewsUpdateHandler{
-		channelRepo: channelRepo,
-		msgIDCache:  msgIDCache,
-		producer:    producer,
-		logger:      logger.With().Str("component", "news_update_handler").Logger(),
-		metrics:     m,
-		albumBuffer: make(map[int64]*pendingAlbum),
+		channelRepo:   channelRepo,
+		msgIDCache:    msgIDCache,
+		producer:      producer,
+		logger:        logger.With().Str("component", "news_update_handler").Logger(),
+		metrics:       m,
+		mediaUploader: mediaUploader,
+		albumBuffer:   make(map[int64]*pendingAlbum),
 	}
 	h.healthy.Store(true)
 	h.lastUpdateTime.Store(time.Now())
 	return h
+}
+
+// SetMediaDownloadFunc sets the function for downloading media from Telegram
+// This is called by MTProtoClient after connection to provide access to tg.Client
+func (h *NewsUpdateHandler) SetMediaDownloadFunc(fn domain.MediaDownloadFunc) {
+	h.mediaDownloadMu.Lock()
+	defer h.mediaDownloadMu.Unlock()
+	h.mediaDownloadFn = fn
+	h.logger.Info().Msg("media download function set")
+}
+
+// getMediaDownloadFunc safely retrieves the media download function
+func (h *NewsUpdateHandler) getMediaDownloadFunc() domain.MediaDownloadFunc {
+	h.mediaDownloadMu.RLock()
+	defer h.mediaDownloadMu.RUnlock()
+	return h.mediaDownloadFn
 }
 
 // OnNewChannelMessage handles new channel message updates
@@ -141,7 +163,7 @@ func (h *NewsUpdateHandler) OnNewChannelMessage(
 		channelName = channel.ChannelName
 	}
 
-	newsItem := h.convertToNewsItem(msg, channelID, channelName)
+	newsItem := h.convertToNewsItem(ctx, msg, channelID, channelName)
 
 	// Handle album grouping
 	if newsItem.GroupedID != 0 {
@@ -347,13 +369,13 @@ func (h *NewsUpdateHandler) extractChannelInfo(msg *tg.Message, e tg.Entities) (
 }
 
 // convertToNewsItem converts a Telegram message to domain.NewsItem
-func (h *NewsUpdateHandler) convertToNewsItem(msg *tg.Message, channelID, channelName string) domain.NewsItem {
+func (h *NewsUpdateHandler) convertToNewsItem(ctx context.Context, msg *tg.Message, channelID, channelName string) domain.NewsItem {
 	newsItem := domain.NewsItem{
 		ChannelID:   channelID,
 		ChannelName: channelName,
 		MessageID:   msg.ID,
 		Content:     msg.Message,
-		MediaURLs:   h.extractMediaURLs(msg.Media),
+		MediaURLs:   h.extractMediaURLs(ctx, msg.Media, channelID, msg.ID),
 		Date:        time.Unix(int64(msg.Date), 0),
 		GroupedID:   msg.GroupedID, // For album grouping
 	}
@@ -361,9 +383,10 @@ func (h *NewsUpdateHandler) convertToNewsItem(msg *tg.Message, channelID, channe
 	return newsItem
 }
 
-// extractMediaURLs extracts media from message media types
-// Returns Bot API file_id strings for Telegram media, HTTP URLs for web content
-func (h *NewsUpdateHandler) extractMediaURLs(media tg.MessageMediaClass) []string {
+// extractMediaURLs extracts media from message and uploads to S3
+// Downloads media via MTProto, uploads to MinIO S3, returns HTTP URLs
+// Falls back to skipping media if download/upload fails
+func (h *NewsUpdateHandler) extractMediaURLs(ctx context.Context, media tg.MessageMediaClass, channelID string, messageID int) []string {
 	if media == nil {
 		return []string{}
 	}
@@ -372,36 +395,30 @@ func (h *NewsUpdateHandler) extractMediaURLs(media tg.MessageMediaClass) []strin
 
 	switch m := media.(type) {
 	case *tg.MessageMediaPhoto:
-		// Extract photo and encode as Bot API file_id
-		if photo, ok := m.Photo.(*tg.Photo); ok {
-			fileID := fileid.EncodePhotoFileID(photo)
-			if fileID != "" {
-				urls = append(urls, fileID)
-			}
+		// Download photo and upload to S3
+		url := h.processMediaToS3(ctx, media, channelID, messageID, "photo")
+		if url != "" {
+			urls = append(urls, url)
 		}
 
 	case *tg.MessageMediaDocument:
-		// Extract document and encode as Bot API file_id
-		if doc, ok := m.Document.(*tg.Document); ok {
-			fileType := fileid.DetectDocumentType(doc)
-			fileID := fileid.EncodeDocumentFileID(doc, fileType)
-			if fileID != "" {
-				urls = append(urls, fileID)
-			}
+		// Download document and upload to S3
+		url := h.processMediaToS3(ctx, media, channelID, messageID, "document")
+		if url != "" {
+			urls = append(urls, url)
 		}
 
 	case *tg.MessageMediaWebPage:
 		if webpage, ok := m.Webpage.(*tg.WebPage); ok {
+			// Keep webpage URL as-is (it's already a HTTP URL)
 			if webpage.URL != "" {
 				urls = append(urls, webpage.URL)
 			}
-			// Also extract photo from webpage if present
+			// Also process photo from webpage if present
 			if webpage.Photo != nil {
-				if photo, ok := webpage.Photo.(*tg.Photo); ok {
-					fileID := fileid.EncodePhotoFileID(photo)
-					if fileID != "" {
-						urls = append(urls, fileID)
-					}
+				url := h.processMediaToS3(ctx, &tg.MessageMediaPhoto{Photo: webpage.Photo}, channelID, messageID, "webpage_photo")
+				if url != "" {
+					urls = append(urls, url)
 				}
 			}
 		}
@@ -420,6 +437,70 @@ func (h *NewsUpdateHandler) extractMediaURLs(media tg.MessageMediaClass) []strin
 	}
 
 	return urls
+}
+
+// processMediaToS3 downloads media from Telegram and uploads to S3
+// Returns S3 URL on success, empty string on failure
+func (h *NewsUpdateHandler) processMediaToS3(ctx context.Context, media tg.MessageMediaClass, channelID string, messageID int, mediaType string) string {
+	downloadFn := h.getMediaDownloadFunc()
+	if downloadFn == nil {
+		h.logger.Debug().
+			Str("channel_id", channelID).
+			Int("message_id", messageID).
+			Str("media_type", mediaType).
+			Msg("media download function not set, skipping media")
+		return ""
+	}
+
+	if h.mediaUploader == nil {
+		h.logger.Debug().
+			Str("channel_id", channelID).
+			Int("message_id", messageID).
+			Str("media_type", mediaType).
+			Msg("media uploader not set, skipping media")
+		return ""
+	}
+
+	// Download media from Telegram
+	data, filename, contentType, err := downloadFn(ctx, media)
+	if err != nil {
+		h.logger.Warn().Err(err).
+			Str("channel_id", channelID).
+			Int("message_id", messageID).
+			Str("media_type", mediaType).
+			Msg("failed to download media from Telegram, skipping")
+		return ""
+	}
+
+	if len(data) == 0 {
+		h.logger.Debug().
+			Str("channel_id", channelID).
+			Int("message_id", messageID).
+			Str("media_type", mediaType).
+			Msg("downloaded media is empty, skipping")
+		return ""
+	}
+
+	// Upload to S3
+	url, err := h.mediaUploader.UploadMedia(ctx, channelID, messageID, filename, contentType, data)
+	if err != nil {
+		h.logger.Warn().Err(err).
+			Str("channel_id", channelID).
+			Int("message_id", messageID).
+			Str("media_type", mediaType).
+			Msg("failed to upload media to S3, skipping")
+		return ""
+	}
+
+	h.logger.Debug().
+		Str("channel_id", channelID).
+		Int("message_id", messageID).
+		Str("media_type", mediaType).
+		Str("url", url).
+		Int("size", len(data)).
+		Msg("uploaded media to S3")
+
+	return url
 }
 
 // OnDeleteChannelMessages handles channel message deletion updates
@@ -518,7 +599,7 @@ func (h *NewsUpdateHandler) OnEditChannelMessage(
 		}
 	}
 
-	newsItem := h.convertToNewsItem(msg, channelID, channelName)
+	newsItem := h.convertToNewsItem(ctx, msg, channelID, channelName)
 
 	if err := h.producer.SendNewsEdited(ctx, &newsItem); err != nil {
 		h.logger.Error().Err(err).

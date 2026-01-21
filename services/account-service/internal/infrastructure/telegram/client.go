@@ -1,9 +1,11 @@
 package telegram
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"slices"
 	"strings"
 	"sync"
@@ -12,6 +14,7 @@ import (
 
 	"github.com/gotd/td/session"
 	"github.com/gotd/td/telegram"
+	"github.com/gotd/td/telegram/downloader"
 	"github.com/gotd/td/telegram/updates"
 	"github.com/gotd/td/tg"
 	"github.com/gotd/td/tgerr"
@@ -21,7 +24,6 @@ import (
 
 	"github.com/Conte777/NewsFlow/services/account-service/internal/domain"
 	"github.com/Conte777/NewsFlow/services/account-service/internal/domain/news/handlers"
-	"github.com/Conte777/NewsFlow/services/account-service/internal/infrastructure/telegram/fileid"
 )
 
 // MTProtoClient implements domain.TelegramClient using gotd/td library
@@ -788,7 +790,7 @@ func (c *MTProtoClient) processMessagesSlice(messages []tg.MessageClass, channel
 
 			// Extract media URLs if present
 			if message.Media != nil {
-				newsItem.MediaURLs = c.extractMediaURLs(message.Media)
+				newsItem.MediaURLs = c.extractSimpleMediaURLs(message.Media)
 			}
 
 			newsItems = append(newsItems, newsItem)
@@ -811,68 +813,17 @@ func (c *MTProtoClient) processMessagesSlice(messages []tg.MessageClass, channel
 	return newsItems
 }
 
-// extractMediaURLs extracts media from different message media types
-//
-// For Telegram-hosted media (photos, videos, documents), returns Bot API file_id
-// strings that can be used directly with the Telegram Bot API.
-//
-// For web content, returns HTTP URLs.
-//
-// Supported return formats:
-//   - Bot API file_id (base64 string) - for photos, videos, documents, audio
-//   - http(s)://... - Web URLs from MessageMediaWebPage
-//   - geo:[lat],[long] - Geographic coordinates (RFC 5870 format)
-//   - contact://tel:[phone] - Contact information
-//
-// Returns empty slice if no media is present or media type is unsupported (e.g., polls).
-func (c *MTProtoClient) extractMediaURLs(media tg.MessageMediaClass) []string {
+// extractSimpleMediaURLs extracts non-downloadable media URLs (geo, contact, web URLs)
+// Downloadable media (photos, documents) are handled via S3 upload in NewsUpdateHandler
+func (c *MTProtoClient) extractSimpleMediaURLs(media tg.MessageMediaClass) []string {
 	var urls []string
 
 	switch m := media.(type) {
-	case *tg.MessageMediaPhoto:
-		// Extract photo and encode as Bot API file_id
-		if photo, ok := m.Photo.(*tg.Photo); ok {
-			fileID := fileid.EncodePhotoFileID(photo)
-			if fileID != "" {
-				urls = append(urls, fileID)
-			}
-		}
-
-	case *tg.MessageMediaDocument:
-		// Extract document and encode as Bot API file_id
-		if doc, ok := m.Document.(*tg.Document); ok {
-			// Detect document type from attributes
-			fileType := fileid.DetectDocumentType(doc)
-			fileID := fileid.EncodeDocumentFileID(doc, fileType)
-			if fileID != "" {
-				urls = append(urls, fileID)
-			}
-		}
-
 	case *tg.MessageMediaWebPage:
-		// Extract webpage URL if present
+		// Extract webpage URL if present (already HTTP URL)
 		if webpage, ok := m.Webpage.(*tg.WebPage); ok {
 			if webpage.URL != "" {
 				urls = append(urls, webpage.URL)
-			}
-			// Also extract photo from webpage if present
-			if webpage.Photo != nil {
-				if photo, ok := webpage.Photo.(*tg.Photo); ok {
-					fileID := fileid.EncodePhotoFileID(photo)
-					if fileID != "" {
-						urls = append(urls, fileID)
-					}
-				}
-			}
-			// Extract document from webpage if present
-			if webpage.Document != nil {
-				if doc, ok := webpage.Document.(*tg.Document); ok {
-					fileType := fileid.DetectDocumentType(doc)
-					fileID := fileid.EncodeDocumentFileID(doc, fileType)
-					if fileID != "" {
-						urls = append(urls, fileID)
-					}
-				}
 			}
 		}
 
@@ -889,6 +840,11 @@ func (c *MTProtoClient) extractMediaURLs(media tg.MessageMediaClass) []string {
 		// Extract contact info as vCard-style URL
 		contactURL := fmt.Sprintf("contact://tel:%s", m.PhoneNumber)
 		urls = append(urls, contactURL)
+
+	case *tg.MessageMediaPhoto, *tg.MessageMediaDocument:
+		// Downloadable media - handled via S3 upload in NewsUpdateHandler
+		// Return empty here; real-time handler will download and upload to S3
+		c.logger.Debug().Str("media_type", fmt.Sprintf("%T", m)).Msg("media will be processed via S3 upload")
 
 	case *tg.MessageMediaPoll:
 		// Polls don't have URLs, skip
@@ -1053,12 +1009,145 @@ func (c *MTProtoClient) getFullChannelInfo(ctx context.Context, api *tg.Client, 
 
 // SetNewsHandler sets the handler for real-time news updates
 // This must be called before Connect() to enable real-time updates
+// Also sets up the media download function for S3 upload
 func (c *MTProtoClient) SetNewsHandler(handler *handlers.NewsUpdateHandler) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.newsHandler = handler
-	c.logger.Info().Msg("news handler set for real-time updates")
+
+	// Set up media download function that uses gotd/td downloader
+	handler.SetMediaDownloadFunc(c.createMediaDownloadFunc())
+
+	c.logger.Info().Msg("news handler set for real-time updates with media download support")
 }
+
+// createMediaDownloadFunc creates a function for downloading media from Telegram
+// This function captures the MTProtoClient and uses its API client for downloading
+func (c *MTProtoClient) createMediaDownloadFunc() domain.MediaDownloadFunc {
+	return func(ctx context.Context, media interface{}) ([]byte, string, string, error) {
+		c.mu.RLock()
+		api := c.api
+		c.mu.RUnlock()
+
+		if api == nil {
+			return nil, "", "", fmt.Errorf("telegram client not connected")
+		}
+
+		switch m := media.(type) {
+		case *tg.MessageMediaPhoto:
+			return c.downloadPhoto(ctx, api, m)
+		case *tg.MessageMediaDocument:
+			return c.downloadDocument(ctx, api, m)
+		default:
+			return nil, "", "", fmt.Errorf("unsupported media type: %T", media)
+		}
+	}
+}
+
+// downloadPhoto downloads a photo from Telegram
+func (c *MTProtoClient) downloadPhoto(ctx context.Context, api *tg.Client, media *tg.MessageMediaPhoto) ([]byte, string, string, error) {
+	photo, ok := media.Photo.(*tg.Photo)
+	if !ok {
+		return nil, "", "", fmt.Errorf("invalid photo type")
+	}
+
+	// Find the largest photo size
+	var largestSize *tg.PhotoSize
+	var maxSize int
+	for _, size := range photo.Sizes {
+		if ps, ok := size.(*tg.PhotoSize); ok {
+			if ps.Size > maxSize {
+				maxSize = ps.Size
+				largestSize = ps
+			}
+		}
+	}
+
+	if largestSize == nil {
+		return nil, "", "", fmt.Errorf("no photo sizes found")
+	}
+
+	// Create input file location for photo
+	location := &tg.InputPhotoFileLocation{
+		ID:            photo.ID,
+		AccessHash:    photo.AccessHash,
+		FileReference: photo.FileReference,
+		ThumbSize:     largestSize.Type,
+	}
+
+	// Download the photo
+	d := downloader.NewDownloader()
+	var buf bytes.Buffer
+	_, err := d.Download(api, location).Stream(ctx, &buf)
+	if err != nil {
+		return nil, "", "", fmt.Errorf("failed to download photo: %w", err)
+	}
+
+	filename := fmt.Sprintf("photo_%d.jpg", photo.ID)
+	return buf.Bytes(), filename, "image/jpeg", nil
+}
+
+// downloadDocument downloads a document from Telegram
+func (c *MTProtoClient) downloadDocument(ctx context.Context, api *tg.Client, media *tg.MessageMediaDocument) ([]byte, string, string, error) {
+	doc, ok := media.Document.(*tg.Document)
+	if !ok {
+		return nil, "", "", fmt.Errorf("invalid document type")
+	}
+
+	// Create input file location for document
+	location := &tg.InputDocumentFileLocation{
+		ID:            doc.ID,
+		AccessHash:    doc.AccessHash,
+		FileReference: doc.FileReference,
+	}
+
+	// Download the document
+	d := downloader.NewDownloader()
+	var buf bytes.Buffer
+
+	_, err := d.Download(api, location).Stream(ctx, &buf)
+	if err != nil {
+		return nil, "", "", fmt.Errorf("failed to download document: %w", err)
+	}
+
+	// Get filename from attributes
+	filename := c.getDocumentFilename(doc)
+	contentType := doc.MimeType
+	if contentType == "" {
+		contentType = "application/octet-stream"
+	}
+
+	return buf.Bytes(), filename, contentType, nil
+}
+
+// getDocumentFilename extracts filename from document attributes
+func (c *MTProtoClient) getDocumentFilename(doc *tg.Document) string {
+	for _, attr := range doc.Attributes {
+		if filename, ok := attr.(*tg.DocumentAttributeFilename); ok {
+			return filename.FileName
+		}
+	}
+
+	// Generate filename based on type
+	ext := "bin"
+	for _, attr := range doc.Attributes {
+		switch attr.(type) {
+		case *tg.DocumentAttributeVideo:
+			ext = "mp4"
+		case *tg.DocumentAttributeAudio:
+			ext = "mp3"
+		case *tg.DocumentAttributeAnimated:
+			ext = "gif"
+		case *tg.DocumentAttributeSticker:
+			ext = "webp"
+		}
+	}
+
+	return fmt.Sprintf("document_%d.%s", doc.ID, ext)
+}
+
+// Ensure io.Writer is used to silence import warning
+var _ io.Writer = (*bytes.Buffer)(nil)
 
 // GetTelegramUserID returns the Telegram user ID for this account
 func (c *MTProtoClient) GetTelegramUserID() int64 {

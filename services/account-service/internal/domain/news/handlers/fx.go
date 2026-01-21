@@ -21,6 +21,7 @@ func NewNewsUpdateHandlerFx(
 	producer domain.KafkaProducer,
 	logger zerolog.Logger,
 	m *metrics.Metrics,
+	mediaUploader domain.MediaUploader,
 ) *NewsUpdateHandler {
-	return NewNewsUpdateHandler(channelRepo, msgIDCache, producer, logger, m)
+	return NewNewsUpdateHandler(channelRepo, msgIDCache, producer, logger, m, mediaUploader)
 }

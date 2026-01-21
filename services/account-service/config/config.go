@@ -19,6 +19,7 @@ type Config struct {
 	Logging  LoggingConfig
 	Service  ServiceConfig
 	News     NewsConfig
+	S3       S3Config
 }
 
 // DatabaseConfig holds PostgreSQL database configuration
@@ -81,6 +82,16 @@ type NewsConfig struct {
 	PollInterval         time.Duration // Interval between news collection cycles (when real-time updates are disabled)
 	FallbackPollInterval time.Duration // Fallback interval when real-time updates ARE working (longer, for catching missed updates)
 	CollectionTimeout    time.Duration // Timeout for single collection cycle
+}
+
+// S3Config holds S3/MinIO configuration for media storage
+type S3Config struct {
+	Endpoint  string
+	AccessKey string
+	SecretKey string
+	Bucket    string
+	UseSSL    bool
+	PublicURL string
 }
 
 // Load loads configuration from environment variables
@@ -168,6 +179,14 @@ func Load() (*Config, error) {
 			FallbackPollInterval: fallbackPollInterval,
 			CollectionTimeout:    collectionTimeout,
 		},
+		S3: S3Config{
+			Endpoint:  getEnv("S3_ENDPOINT", "localhost:9000"),
+			AccessKey: getEnv("S3_ACCESS_KEY", "minioadmin"),
+			SecretKey: getEnv("S3_SECRET_KEY", "minioadmin"),
+			Bucket:    getEnv("S3_BUCKET", "newsflow-media"),
+			UseSSL:    getEnv("S3_USE_SSL", "false") == "true",
+			PublicURL: getEnv("S3_PUBLIC_URL", "http://localhost:9000"),
+		},
 	}
 
 	if err := cfg.Validate(); err != nil {
@@ -245,6 +264,7 @@ type ConfigOut struct {
 	Logging  *LoggingConfig
 	Service  *ServiceConfig
 	News     *NewsConfig
+	S3       *S3Config
 }
 
 // Out loads and provides configuration for fx
@@ -262,5 +282,6 @@ func Out() (ConfigOut, error) {
 		Logging:  &cfg.Logging,
 		Service:  &cfg.Service,
 		News:     &cfg.News,
+		S3:       &cfg.S3,
 	}, nil
 }
