@@ -2,25 +2,35 @@ package dto
 
 import "time"
 
+// MediaMetadata contains media type and attributes for proper rendering
+type MediaMetadata struct {
+	Type     string `json:"type"`               // photo, video, video_note, voice, audio, document
+	Width    int    `json:"width,omitempty"`    // Video/VideoNote width
+	Height   int    `json:"height,omitempty"`   // Video/VideoNote height
+	Duration int    `json:"duration,omitempty"` // Video/VideoNote/Voice/Audio duration in seconds
+}
+
 // NewsReceivedEvent represents incoming news event from account service
 type NewsReceivedEvent struct {
-	ChannelID   string    `json:"channel_id" validate:"required"`
-	ChannelName string    `json:"channel_name" validate:"required"`
-	MessageID   int       `json:"message_id" validate:"required"`
-	Content     string    `json:"content"`
-	MediaURLs   []string  `json:"media_urls"`
-	Date        time.Time `json:"date"`
+	ChannelID     string          `json:"channel_id" validate:"required"`
+	ChannelName   string          `json:"channel_name" validate:"required"`
+	MessageID     int             `json:"message_id" validate:"required"`
+	Content       string          `json:"content"`
+	MediaURLs     []string        `json:"media_urls"`
+	MediaMetadata []MediaMetadata `json:"media_metadata,omitempty"`
+	Date          time.Time       `json:"date"`
 }
 
 // NewsDeliveryEvent represents outgoing news delivery event to bot service
 type NewsDeliveryEvent struct {
-	NewsID      uint     `json:"news_id"`
-	UserID      int64    `json:"user_id"`
-	ChannelID   string   `json:"channel_id"`
-	ChannelName string   `json:"channel_name"`
-	Content     string   `json:"content"`
-	MediaURLs   []string `json:"media_urls"`
-	Timestamp   int64    `json:"timestamp"`
+	NewsID        uint            `json:"news_id"`
+	UserID        int64           `json:"user_id"`
+	ChannelID     string          `json:"channel_id"`
+	ChannelName   string          `json:"channel_name"`
+	Content       string          `json:"content"`
+	MediaURLs     []string        `json:"media_urls"`
+	MediaMetadata []MediaMetadata `json:"media_metadata,omitempty"`
+	Timestamp     int64           `json:"timestamp"`
 }
 
 // GetUserNewsRequest represents request to get user's news history
@@ -46,11 +56,12 @@ type NewsItem struct {
 
 // ProcessNewsRequest represents request to process news
 type ProcessNewsRequest struct {
-	ChannelID   string   `json:"channelId" validate:"required"`
-	ChannelName string   `json:"channelName" validate:"required"`
-	MessageID   int      `json:"messageId" validate:"required"`
-	Content     string   `json:"content"`
-	MediaURLs   []string `json:"mediaUrls"`
+	ChannelID     string          `json:"channelId" validate:"required"`
+	ChannelName   string          `json:"channelName" validate:"required"`
+	MessageID     int             `json:"messageId" validate:"required"`
+	Content       string          `json:"content"`
+	MediaURLs     []string        `json:"mediaUrls"`
+	MediaMetadata []MediaMetadata `json:"mediaMetadata,omitempty"`
 }
 
 // ProcessNewsResponse represents response after processing news
@@ -69,12 +80,13 @@ type NewsDeletedEvent struct {
 
 // NewsEditedEvent represents news edited event from account service
 type NewsEditedEvent struct {
-	ChannelID   string   `json:"channel_id"`
-	ChannelName string   `json:"channel_name"`
-	MessageID   int      `json:"message_id"`
-	Content     string   `json:"content"`
-	MediaURLs   []string `json:"media_urls"`
-	EditedAt    int64    `json:"edited_at"`
+	ChannelID     string          `json:"channel_id"`
+	ChannelName   string          `json:"channel_name"`
+	MessageID     int             `json:"message_id"`
+	Content       string          `json:"content"`
+	MediaURLs     []string        `json:"media_urls"`
+	MediaMetadata []MediaMetadata `json:"media_metadata,omitempty"`
+	EditedAt      int64           `json:"edited_at"`
 }
 
 // Outgoing events to bot-service
@@ -87,9 +99,10 @@ type NewsDeleteDeliveryEvent struct {
 
 // NewsEditDeliveryEvent represents edit delivery event to bot service
 type NewsEditDeliveryEvent struct {
-	NewsID      uint     `json:"news_id"`
-	UserIDs     []int64  `json:"user_ids"`
-	Content     string   `json:"content"`
-	ChannelName string   `json:"channel_name"`
-	MediaURLs   []string `json:"media_urls"`
+	NewsID        uint            `json:"news_id"`
+	UserIDs       []int64         `json:"user_ids"`
+	Content       string          `json:"content"`
+	ChannelName   string          `json:"channel_name"`
+	MediaURLs     []string        `json:"media_urls"`
+	MediaMetadata []MediaMetadata `json:"media_metadata,omitempty"`
 }

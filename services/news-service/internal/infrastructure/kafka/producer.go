@@ -8,8 +8,10 @@ import (
 
 	"github.com/rs/zerolog"
 	"github.com/segmentio/kafka-go"
+
 	"github.com/Conte777/NewsFlow/services/news-service/config"
 	"github.com/Conte777/NewsFlow/services/news-service/internal/domain/news/deps"
+	"github.com/Conte777/NewsFlow/services/news-service/internal/domain/news/dto"
 )
 
 const (
@@ -19,14 +21,15 @@ const (
 )
 
 type NewsDeliveryMessage struct {
-	NewsID      uint     `json:"news_id"`
-	UserIDs     []int64  `json:"user_ids"`
-	ChannelID   string   `json:"channel_id"`
-	ChannelName string   `json:"channel_name"`
-	MessageID   int      `json:"message_id"` // Telegram message ID for copyMessage
-	Content     string   `json:"content"`
-	MediaURLs   []string `json:"media_urls"`
-	Timestamp   int64    `json:"timestamp"`
+	NewsID        uint               `json:"news_id"`
+	UserIDs       []int64            `json:"user_ids"`
+	ChannelID     string             `json:"channel_id"`
+	ChannelName   string             `json:"channel_name"`
+	MessageID     int                `json:"message_id"` // Telegram message ID for copyMessage
+	Content       string             `json:"content"`
+	MediaURLs     []string           `json:"media_urls"`
+	MediaMetadata []dto.MediaMetadata `json:"media_metadata,omitempty"`
+	Timestamp     int64              `json:"timestamp"`
 }
 
 type NewsDeleteMessage struct {
@@ -35,11 +38,12 @@ type NewsDeleteMessage struct {
 }
 
 type NewsEditMessage struct {
-	NewsID      uint     `json:"news_id"`
-	UserIDs     []int64  `json:"user_ids"`
-	Content     string   `json:"content"`
-	ChannelName string   `json:"channel_name"`
-	MediaURLs   []string `json:"media_urls"`
+	NewsID        uint               `json:"news_id"`
+	UserIDs       []int64            `json:"user_ids"`
+	Content       string             `json:"content"`
+	ChannelName   string             `json:"channel_name"`
+	MediaURLs     []string           `json:"media_urls"`
+	MediaMetadata []dto.MediaMetadata `json:"media_metadata,omitempty"`
 }
 
 type Producer struct {
@@ -65,16 +69,17 @@ func NewProducer(cfg *config.KafkaConfig, logger zerolog.Logger) (deps.KafkaProd
 	}, nil
 }
 
-func (p *Producer) SendNewsDelivery(ctx context.Context, newsID uint, userIDs []int64, channelID, channelName string, messageID int, content string, mediaURLs []string) error {
+func (p *Producer) SendNewsDelivery(ctx context.Context, newsID uint, userIDs []int64, channelID, channelName string, messageID int, content string, mediaURLs []string, mediaMetadata []dto.MediaMetadata) error {
 	msg := NewsDeliveryMessage{
-		NewsID:      newsID,
-		UserIDs:     userIDs,
-		ChannelID:   channelID,
-		ChannelName: channelName,
-		MessageID:   messageID,
-		Content:     content,
-		MediaURLs:   mediaURLs,
-		Timestamp:   time.Now().Unix(),
+		NewsID:        newsID,
+		UserIDs:       userIDs,
+		ChannelID:     channelID,
+		ChannelName:   channelName,
+		MessageID:     messageID,
+		Content:       content,
+		MediaURLs:     mediaURLs,
+		MediaMetadata: mediaMetadata,
+		Timestamp:     time.Now().Unix(),
 	}
 
 	data, err := json.Marshal(msg)
@@ -139,13 +144,14 @@ func (p *Producer) SendNewsDelete(ctx context.Context, newsID uint, userIDs []in
 	return nil
 }
 
-func (p *Producer) SendNewsEdit(ctx context.Context, newsID uint, userIDs []int64, content, channelName string, mediaURLs []string) error {
+func (p *Producer) SendNewsEdit(ctx context.Context, newsID uint, userIDs []int64, content, channelName string, mediaURLs []string, mediaMetadata []dto.MediaMetadata) error {
 	msg := NewsEditMessage{
-		NewsID:      newsID,
-		UserIDs:     userIDs,
-		Content:     content,
-		ChannelName: channelName,
-		MediaURLs:   mediaURLs,
+		NewsID:        newsID,
+		UserIDs:       userIDs,
+		Content:       content,
+		ChannelName:   channelName,
+		MediaURLs:     mediaURLs,
+		MediaMetadata: mediaMetadata,
 	}
 
 	data, err := json.Marshal(msg)

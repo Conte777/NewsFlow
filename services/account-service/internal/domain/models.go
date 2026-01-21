@@ -19,16 +19,35 @@ type ChannelSubscription struct {
 	CreatedAt              time.Time
 }
 
+// Media type constants
+const (
+	MediaTypePhoto     = "photo"
+	MediaTypeVideo     = "video"
+	MediaTypeVideoNote = "video_note"
+	MediaTypeVoice     = "voice"
+	MediaTypeAudio     = "audio"
+	MediaTypeDocument  = "document"
+)
+
+// MediaMetadata contains media type and attributes for proper rendering
+type MediaMetadata struct {
+	Type     string `json:"type"`               // photo, video, video_note, voice, audio, document
+	Width    int    `json:"width,omitempty"`    // Video/VideoNote width
+	Height   int    `json:"height,omitempty"`   // Video/VideoNote height
+	Duration int    `json:"duration,omitempty"` // Video/VideoNote/Voice/Audio duration in seconds
+}
+
 // NewsItem represents a news message from a channel
 // JSON tags are added to match the event format specification (ACC-2.2)
 type NewsItem struct {
-	ChannelID   string    `json:"channel_id"`
-	ChannelName string    `json:"channel_name"`
-	MessageID   int       `json:"message_id"`
-	Content     string    `json:"content"`
-	MediaURLs   []string  `json:"media_urls"`
-	Date        time.Time `json:"date"`
-	GroupedID   int64     `json:"grouped_id,omitempty"` // Album/media group ID for grouping related messages
+	ChannelID     string          `json:"channel_id"`
+	ChannelName   string          `json:"channel_name"`
+	MessageID     int             `json:"message_id"`
+	Content       string          `json:"content"`
+	MediaURLs     []string        `json:"media_urls"`
+	MediaMetadata []MediaMetadata `json:"media_metadata,omitempty"` // Metadata for each media URL
+	Date          time.Time       `json:"date"`
+	GroupedID     int64           `json:"grouped_id,omitempty"` // Album/media group ID for grouping related messages
 }
 
 // SubscriptionEvent represents a subscription event from subscription service

@@ -276,13 +276,25 @@ func (p *KafkaProducer) SendNewsEdited(ctx context.Context, news *domain.NewsIte
 	default:
 	}
 
+	// Convert domain.MediaMetadata to kafka.MediaMetadata
+	var kafkaMetadata []MediaMetadata
+	for _, m := range news.MediaMetadata {
+		kafkaMetadata = append(kafkaMetadata, MediaMetadata{
+			Type:     m.Type,
+			Width:    m.Width,
+			Height:   m.Height,
+			Duration: m.Duration,
+		})
+	}
+
 	event := &NewsEditedEvent{
-		ChannelID:   news.ChannelID,
-		ChannelName: news.ChannelName,
-		MessageID:   news.MessageID,
-		Content:     news.Content,
-		MediaURLs:   news.MediaURLs,
-		EditedAt:    time.Now().Unix(),
+		ChannelID:     news.ChannelID,
+		ChannelName:   news.ChannelName,
+		MessageID:     news.MessageID,
+		Content:       news.Content,
+		MediaURLs:     news.MediaURLs,
+		MediaMetadata: kafkaMetadata,
+		EditedAt:      time.Now().Unix(),
 	}
 
 	value, err := json.Marshal(event)

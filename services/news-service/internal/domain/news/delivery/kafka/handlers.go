@@ -40,11 +40,12 @@ func (h *Handlers) HandleNewsReceived(ctx context.Context, message []byte) error
 		Msg("Processing news received event")
 
 	req := &dto.ProcessNewsRequest{
-		ChannelID:   event.ChannelID,
-		ChannelName: event.ChannelName,
-		MessageID:   event.MessageID,
-		Content:     event.Content,
-		MediaURLs:   event.MediaURLs,
+		ChannelID:     event.ChannelID,
+		ChannelName:   event.ChannelName,
+		MessageID:     event.MessageID,
+		Content:       event.Content,
+		MediaURLs:     event.MediaURLs,
+		MediaMetadata: event.MediaMetadata,
 	}
 
 	_, err := h.uc.ProcessNewsReceived(ctx, req)

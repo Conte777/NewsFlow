@@ -3,6 +3,24 @@ package dto
 
 import "time"
 
+// MediaMetadata contains media type and attributes for proper rendering
+type MediaMetadata struct {
+	Type     string `json:"type"`               // photo, video, video_note, voice, audio, document
+	Width    int    `json:"width,omitempty"`    // Video/VideoNote width
+	Height   int    `json:"height,omitempty"`   // Video/VideoNote height
+	Duration int    `json:"duration,omitempty"` // Video/VideoNote/Voice/Audio duration in seconds
+}
+
+// Media type constants
+const (
+	MediaTypePhoto     = "photo"
+	MediaTypeVideo     = "video"
+	MediaTypeVideoNote = "video_note"
+	MediaTypeVoice     = "voice"
+	MediaTypeAudio     = "audio"
+	MediaTypeDocument  = "document"
+)
+
 // StartCommandRequest represents a request to handle /start command
 type StartCommandRequest struct {
 	UserID   int64  `json:"userId"`
@@ -38,14 +56,15 @@ type SubscriptionDeletedEvent struct {
 
 // NewsDeliveryEvent represents a Kafka event for news delivery (batch format)
 type NewsDeliveryEvent struct {
-	NewsID      uint     `json:"news_id"`
-	UserIDs     []int64  `json:"user_ids"`
-	ChannelID   string   `json:"channel_id"`
-	ChannelName string   `json:"channel_name"`
-	MessageID   int      `json:"message_id"` // Telegram message ID for copyMessage
-	Content     string   `json:"content"`
-	MediaURLs   []string `json:"media_urls"`
-	Timestamp   int64    `json:"timestamp"`
+	NewsID        uint            `json:"news_id"`
+	UserIDs       []int64         `json:"user_ids"`
+	ChannelID     string          `json:"channel_id"`
+	ChannelName   string          `json:"channel_name"`
+	MessageID     int             `json:"message_id"` // Telegram message ID for copyMessage
+	Content       string          `json:"content"`
+	MediaURLs     []string        `json:"media_urls"`
+	MediaMetadata []MediaMetadata `json:"media_metadata,omitempty"`
+	Timestamp     int64           `json:"timestamp"`
 }
 
 // CommandResponse represents a response for bot commands
@@ -103,9 +122,10 @@ type NewsDeleteEvent struct {
 
 // NewsEditEvent represents a Kafka event for editing news in user chats
 type NewsEditEvent struct {
-	NewsID      uint     `json:"news_id"`
-	UserIDs     []int64  `json:"user_ids"`
-	Content     string   `json:"content"`
-	ChannelName string   `json:"channel_name"`
-	MediaURLs   []string `json:"media_urls"`
+	NewsID        uint            `json:"news_id"`
+	UserIDs       []int64         `json:"user_ids"`
+	Content       string          `json:"content"`
+	ChannelName   string          `json:"channel_name"`
+	MediaURLs     []string        `json:"media_urls"`
+	MediaMetadata []MediaMetadata `json:"media_metadata,omitempty"`
 }

@@ -70,12 +70,19 @@ func (u *UseCase) ProcessNewsReceived(ctx context.Context, req *dto.ProcessNewsR
 		return nil, err
 	}
 
+	mediaMetadataJSON, err := json.Marshal(req.MediaMetadata)
+	if err != nil {
+		u.logger.Error().Err(err).Msg("Failed to marshal media metadata")
+		mediaMetadataJSON = []byte("[]")
+	}
+
 	news := &entities.News{
-		ChannelID:   req.ChannelID,
-		ChannelName: req.ChannelName,
-		MessageID:   req.MessageID,
-		Content:     req.Content,
-		MediaURLs:   string(mediaURLsJSON),
+		ChannelID:     req.ChannelID,
+		ChannelName:   req.ChannelName,
+		MessageID:     req.MessageID,
+		Content:       req.Content,
+		MediaURLs:     string(mediaURLsJSON),
+		MediaMetadata: string(mediaMetadataJSON),
 	}
 
 	if err := u.newsRepo.Create(ctx, news); err != nil {
@@ -132,6 +139,14 @@ func (u *UseCase) DeliverNewsToUsers(ctx context.Context, newsID uint, userIDs [
 		}
 	}
 
+	var mediaMetadata []dto.MediaMetadata
+	if news.MediaMetadata != "" {
+		if err := json.Unmarshal([]byte(news.MediaMetadata), &mediaMetadata); err != nil {
+			u.logger.Error().Err(err).Msg("Failed to unmarshal media metadata")
+			mediaMetadata = []dto.MediaMetadata{}
+		}
+	}
+
 	pendingUserIDs := make([]int64, 0, len(userIDs))
 	for _, userID := range userIDs {
 		delivered, err := u.deliveredRepo.IsDelivered(ctx, newsID, userID)
@@ -161,7 +176,7 @@ func (u *UseCase) DeliverNewsToUsers(ctx context.Context, newsID uint, userIDs [
 		return nil
 	}
 
-	if err := u.kafkaProducer.SendNewsDelivery(ctx, newsID, pendingUserIDs, news.ChannelID, news.ChannelName, news.MessageID, news.Content, mediaURLs); err != nil {
+	if err := u.kafkaProducer.SendNewsDelivery(ctx, newsID, pendingUserIDs, news.ChannelID, news.ChannelName, news.MessageID, news.Content, mediaURLs, mediaMetadata); err != nil {
 		u.logger.Error().Err(err).
 			Uint("news_id", newsID).
 			Int("pending_users_count", len(pendingUserIDs)).
@@ -392,8 +407,15 @@ func (u *UseCase) ProcessNewsEdited(ctx context.Context, event *dto.NewsEditedEv
 		mediaURLsJSON = []byte("[]")
 	}
 
+	mediaMetadataJSON, err := json.Marshal(event.MediaMetadata)
+	if err != nil {
+		u.logger.Error().Err(err).Msg("Failed to marshal media metadata")
+		mediaMetadataJSON = []byte("[]")
+	}
+
 	news.Content = event.Content
 	news.MediaURLs = string(mediaURLsJSON)
+	news.MediaMetadata = string(mediaMetadataJSON)
 	if event.ChannelName != "" {
 		news.ChannelName = event.ChannelName
 	}
@@ -439,7 +461,7 @@ func (u *UseCase) ProcessNewsEdited(ctx context.Context, event *dto.NewsEditedEv
 	}
 
 	// Send edit event to bot-service
-	if err := u.kafkaProducer.SendNewsEdit(ctx, news.ID, userIDs, event.Content, news.ChannelName, event.MediaURLs); err != nil {
+	if err := u.kafkaProducer.SendNewsEdit(ctx, news.ID, userIDs, event.Content, news.ChannelName, event.MediaURLs, event.MediaMetadata); err != nil {
 		u.logger.Error().Err(err).
 			Uint("news_id", news.ID).
 			Int("users_count", len(userIDs)).

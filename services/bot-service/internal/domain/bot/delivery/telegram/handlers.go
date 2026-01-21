@@ -43,6 +43,9 @@ type MediaType string
 const (
 	MediaTypePhoto       MediaType = "photo"
 	MediaTypeVideo       MediaType = "video"
+	MediaTypeVideoNote   MediaType = "video_note"
+	MediaTypeVoice       MediaType = "voice"
+	MediaTypeAudio       MediaType = "audio"
 	MediaTypeDocument    MediaType = "document"
 	MediaTypeUnsupported MediaType = "unsupported"
 )
@@ -53,6 +56,7 @@ type MediaInfo struct {
 	Type     MediaType
 	MimeType string
 	FileName string
+	Metadata *entities.MediaMetadata // Optional metadata with dimensions and duration
 }
 
 // Handlers contains Telegram command handlers
@@ -623,7 +627,13 @@ func (h *Handlers) sendSingleMedia(ctx context.Context, userID int64, text strin
 		case MediaTypePhoto:
 			err = h.sendPhoto(ctx, userID, text, mediaInfo)
 		case MediaTypeVideo:
-			err = h.sendVideo(ctx, userID, text, mediaInfo)
+			err = h.sendVideo(ctx, userID, text, mediaInfo, mediaInfo.Metadata)
+		case MediaTypeVideoNote:
+			err = h.sendVideoNote(ctx, userID, mediaInfo, mediaInfo.Metadata)
+		case MediaTypeVoice:
+			err = h.sendVoice(ctx, userID, text, mediaInfo, mediaInfo.Metadata)
+		case MediaTypeAudio:
+			err = h.sendAudio(ctx, userID, text, mediaInfo, mediaInfo.Metadata)
 		case MediaTypeDocument:
 			err = h.sendDocument(ctx, userID, text, mediaInfo)
 		default:
@@ -664,17 +674,81 @@ func (h *Handlers) sendPhoto(ctx context.Context, userID int64, text string, med
 	return err
 }
 
-func (h *Handlers) sendVideo(ctx context.Context, userID int64, text string, mediaInfo MediaInfo) error {
+func (h *Handlers) sendVideo(ctx context.Context, userID int64, text string, mediaInfo MediaInfo, meta *entities.MediaMetadata) error {
 	msgCtx, cancel := context.WithTimeout(ctx, RequestTimeout)
 	defer cancel()
 
-	_, err := h.bot.SendVideo(msgCtx, &tgbot.SendVideoParams{
+	params := &tgbot.SendVideoParams{
+		ChatID:            userID,
+		Video:             &models.InputFileString{Data: mediaInfo.URL},
+		Caption:           text,
+		ParseMode:         models.ParseModeHTML,
+		SupportsStreaming: true,
+	}
+
+	if meta != nil {
+		params.Width = meta.Width
+		params.Height = meta.Height
+		params.Duration = meta.Duration
+	}
+
+	_, err := h.bot.SendVideo(msgCtx, params)
+	return err
+}
+
+func (h *Handlers) sendVideoNote(ctx context.Context, userID int64, mediaInfo MediaInfo, meta *entities.MediaMetadata) error {
+	msgCtx, cancel := context.WithTimeout(ctx, RequestTimeout)
+	defer cancel()
+
+	params := &tgbot.SendVideoNoteParams{
 		ChatID:    userID,
-		Video:     &models.InputFileString{Data: mediaInfo.URL},
+		VideoNote: &models.InputFileString{Data: mediaInfo.URL},
+	}
+
+	if meta != nil {
+		params.Duration = meta.Duration
+		params.Length = meta.Width // VideoNote uses Length for diameter
+	}
+
+	_, err := h.bot.SendVideoNote(msgCtx, params)
+	return err
+}
+
+func (h *Handlers) sendVoice(ctx context.Context, userID int64, text string, mediaInfo MediaInfo, meta *entities.MediaMetadata) error {
+	msgCtx, cancel := context.WithTimeout(ctx, RequestTimeout)
+	defer cancel()
+
+	params := &tgbot.SendVoiceParams{
+		ChatID:    userID,
+		Voice:     &models.InputFileString{Data: mediaInfo.URL},
 		Caption:   text,
 		ParseMode: models.ParseModeHTML,
-	})
+	}
 
+	if meta != nil {
+		params.Duration = meta.Duration
+	}
+
+	_, err := h.bot.SendVoice(msgCtx, params)
+	return err
+}
+
+func (h *Handlers) sendAudio(ctx context.Context, userID int64, text string, mediaInfo MediaInfo, meta *entities.MediaMetadata) error {
+	msgCtx, cancel := context.WithTimeout(ctx, RequestTimeout)
+	defer cancel()
+
+	params := &tgbot.SendAudioParams{
+		ChatID:    userID,
+		Audio:     &models.InputFileString{Data: mediaInfo.URL},
+		Caption:   text,
+		ParseMode: models.ParseModeHTML,
+	}
+
+	if meta != nil {
+		params.Duration = meta.Duration
+	}
+
+	_, err := h.bot.SendAudio(msgCtx, params)
 	return err
 }
 
@@ -1325,20 +1399,59 @@ func (h *Handlers) sendFileAndGetID(ctx context.Context, userID int64, text stri
 // sendFileByUpload uploads file data to Telegram
 func (h *Handlers) sendFileByUpload(ctx context.Context, userID int64, text string, file *entities.DownloadedFile) (*models.Message, error) {
 	switch file.MediaType {
-	case "photo":
+	case entities.MediaTypePhoto:
 		return h.bot.SendPhoto(ctx, &tgbot.SendPhotoParams{
 			ChatID:    userID,
 			Photo:     &models.InputFileUpload{Filename: file.Filename, Data: bytes.NewReader(file.Data)},
 			Caption:   text,
 			ParseMode: models.ParseModeHTML,
 		})
-	case "video":
-		return h.bot.SendVideo(ctx, &tgbot.SendVideoParams{
+	case entities.MediaTypeVideo:
+		params := &tgbot.SendVideoParams{
+			ChatID:            userID,
+			Video:             &models.InputFileUpload{Filename: file.Filename, Data: bytes.NewReader(file.Data)},
+			Caption:           text,
+			ParseMode:         models.ParseModeHTML,
+			SupportsStreaming: true,
+		}
+		if file.Metadata != nil {
+			params.Width = file.Metadata.Width
+			params.Height = file.Metadata.Height
+			params.Duration = file.Metadata.Duration
+		}
+		return h.bot.SendVideo(ctx, params)
+	case entities.MediaTypeVideoNote:
+		params := &tgbot.SendVideoNoteParams{
 			ChatID:    userID,
-			Video:     &models.InputFileUpload{Filename: file.Filename, Data: bytes.NewReader(file.Data)},
+			VideoNote: &models.InputFileUpload{Filename: file.Filename, Data: bytes.NewReader(file.Data)},
+		}
+		if file.Metadata != nil {
+			params.Duration = file.Metadata.Duration
+			params.Length = file.Metadata.Width
+		}
+		return h.bot.SendVideoNote(ctx, params)
+	case entities.MediaTypeVoice:
+		params := &tgbot.SendVoiceParams{
+			ChatID:    userID,
+			Voice:     &models.InputFileUpload{Filename: file.Filename, Data: bytes.NewReader(file.Data)},
 			Caption:   text,
 			ParseMode: models.ParseModeHTML,
-		})
+		}
+		if file.Metadata != nil {
+			params.Duration = file.Metadata.Duration
+		}
+		return h.bot.SendVoice(ctx, params)
+	case entities.MediaTypeAudio:
+		params := &tgbot.SendAudioParams{
+			ChatID:    userID,
+			Audio:     &models.InputFileUpload{Filename: file.Filename, Data: bytes.NewReader(file.Data)},
+			Caption:   text,
+			ParseMode: models.ParseModeHTML,
+		}
+		if file.Metadata != nil {
+			params.Duration = file.Metadata.Duration
+		}
+		return h.bot.SendAudio(ctx, params)
 	default:
 		return h.bot.SendDocument(ctx, &tgbot.SendDocumentParams{
 			ChatID:    userID,
@@ -1352,20 +1465,59 @@ func (h *Handlers) sendFileByUpload(ctx context.Context, userID int64, text stri
 // sendFileByID sends file using cached Telegram file_id
 func (h *Handlers) sendFileByID(ctx context.Context, userID int64, text string, file *entities.DownloadedFile) (*models.Message, error) {
 	switch file.MediaType {
-	case "photo":
+	case entities.MediaTypePhoto:
 		return h.bot.SendPhoto(ctx, &tgbot.SendPhotoParams{
 			ChatID:    userID,
 			Photo:     &models.InputFileString{Data: file.FileID},
 			Caption:   text,
 			ParseMode: models.ParseModeHTML,
 		})
-	case "video":
-		return h.bot.SendVideo(ctx, &tgbot.SendVideoParams{
+	case entities.MediaTypeVideo:
+		params := &tgbot.SendVideoParams{
+			ChatID:            userID,
+			Video:             &models.InputFileString{Data: file.FileID},
+			Caption:           text,
+			ParseMode:         models.ParseModeHTML,
+			SupportsStreaming: true,
+		}
+		if file.Metadata != nil {
+			params.Width = file.Metadata.Width
+			params.Height = file.Metadata.Height
+			params.Duration = file.Metadata.Duration
+		}
+		return h.bot.SendVideo(ctx, params)
+	case entities.MediaTypeVideoNote:
+		params := &tgbot.SendVideoNoteParams{
 			ChatID:    userID,
-			Video:     &models.InputFileString{Data: file.FileID},
+			VideoNote: &models.InputFileString{Data: file.FileID},
+		}
+		if file.Metadata != nil {
+			params.Duration = file.Metadata.Duration
+			params.Length = file.Metadata.Width
+		}
+		return h.bot.SendVideoNote(ctx, params)
+	case entities.MediaTypeVoice:
+		params := &tgbot.SendVoiceParams{
+			ChatID:    userID,
+			Voice:     &models.InputFileString{Data: file.FileID},
 			Caption:   text,
 			ParseMode: models.ParseModeHTML,
-		})
+		}
+		if file.Metadata != nil {
+			params.Duration = file.Metadata.Duration
+		}
+		return h.bot.SendVoice(ctx, params)
+	case entities.MediaTypeAudio:
+		params := &tgbot.SendAudioParams{
+			ChatID:    userID,
+			Audio:     &models.InputFileString{Data: file.FileID},
+			Caption:   text,
+			ParseMode: models.ParseModeHTML,
+		}
+		if file.Metadata != nil {
+			params.Duration = file.Metadata.Duration
+		}
+		return h.bot.SendAudio(ctx, params)
 	default:
 		return h.bot.SendDocument(ctx, &tgbot.SendDocumentParams{
 			ChatID:    userID,
@@ -1383,14 +1535,26 @@ func (h *Handlers) extractFileID(msg *models.Message, mediaType string) string {
 	}
 
 	switch mediaType {
-	case "photo":
+	case entities.MediaTypePhoto:
 		// Photo array contains multiple sizes, take the largest (last one)
 		if len(msg.Photo) > 0 {
 			return msg.Photo[len(msg.Photo)-1].FileID
 		}
-	case "video":
+	case entities.MediaTypeVideo:
 		if msg.Video != nil {
 			return msg.Video.FileID
+		}
+	case entities.MediaTypeVideoNote:
+		if msg.VideoNote != nil {
+			return msg.VideoNote.FileID
+		}
+	case entities.MediaTypeVoice:
+		if msg.Voice != nil {
+			return msg.Voice.FileID
+		}
+	case entities.MediaTypeAudio:
+		if msg.Audio != nil {
+			return msg.Audio.FileID
 		}
 	default:
 		if msg.Document != nil {

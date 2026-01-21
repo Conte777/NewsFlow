@@ -254,18 +254,21 @@ func (h *NewsUpdateHandler) combineAlbumItems(items []domain.NewsItem) domain.Ne
 	// Use the first item as base
 	result := items[0]
 
-	// Collect all media URLs and find text content
+	// Collect all media URLs, metadata and find text content
 	var allMediaURLs []string
+	var allMetadata []domain.MediaMetadata
 	var textContent string
 
 	for _, item := range items {
 		allMediaURLs = append(allMediaURLs, item.MediaURLs...)
+		allMetadata = append(allMetadata, item.MediaMetadata...)
 		if item.Content != "" && textContent == "" {
 			textContent = item.Content // Use first non-empty content
 		}
 	}
 
 	result.MediaURLs = allMediaURLs
+	result.MediaMetadata = allMetadata
 	result.Content = textContent
 
 	// Use the lowest message ID (first message in album)
@@ -370,28 +373,32 @@ func (h *NewsUpdateHandler) extractChannelInfo(msg *tg.Message, e tg.Entities) (
 
 // convertToNewsItem converts a Telegram message to domain.NewsItem
 func (h *NewsUpdateHandler) convertToNewsItem(ctx context.Context, msg *tg.Message, channelID, channelName string) domain.NewsItem {
+	urls, metadata := h.extractMediaWithMetadata(ctx, msg.Media, channelID, msg.ID)
+
 	newsItem := domain.NewsItem{
-		ChannelID:   channelID,
-		ChannelName: channelName,
-		MessageID:   msg.ID,
-		Content:     msg.Message,
-		MediaURLs:   h.extractMediaURLs(ctx, msg.Media, channelID, msg.ID),
-		Date:        time.Unix(int64(msg.Date), 0),
-		GroupedID:   msg.GroupedID, // For album grouping
+		ChannelID:     channelID,
+		ChannelName:   channelName,
+		MessageID:     msg.ID,
+		Content:       msg.Message,
+		MediaURLs:     urls,
+		MediaMetadata: metadata,
+		Date:          time.Unix(int64(msg.Date), 0),
+		GroupedID:     msg.GroupedID, // For album grouping
 	}
 
 	return newsItem
 }
 
-// extractMediaURLs extracts media from message and uploads to S3
-// Downloads media via MTProto, uploads to MinIO S3, returns HTTP URLs
+// extractMediaWithMetadata extracts media from message and uploads to S3
+// Downloads media via MTProto, uploads to MinIO S3, returns HTTP URLs and metadata
 // Falls back to skipping media if download/upload fails
-func (h *NewsUpdateHandler) extractMediaURLs(ctx context.Context, media tg.MessageMediaClass, channelID string, messageID int) []string {
+func (h *NewsUpdateHandler) extractMediaWithMetadata(ctx context.Context, media tg.MessageMediaClass, channelID string, messageID int) ([]string, []domain.MediaMetadata) {
 	if media == nil {
-		return []string{}
+		return []string{}, []domain.MediaMetadata{}
 	}
 
 	var urls []string
+	var metadata []domain.MediaMetadata
 
 	switch m := media.(type) {
 	case *tg.MessageMediaPhoto:
@@ -399,13 +406,23 @@ func (h *NewsUpdateHandler) extractMediaURLs(ctx context.Context, media tg.Messa
 		url := h.processMediaToS3(ctx, media, channelID, messageID, "photo")
 		if url != "" {
 			urls = append(urls, url)
+			metadata = append(metadata, domain.MediaMetadata{Type: domain.MediaTypePhoto})
 		}
 
 	case *tg.MessageMediaDocument:
+		// Extract metadata from document attributes
+		var meta domain.MediaMetadata
+		if doc, ok := m.Document.(*tg.Document); ok {
+			meta = h.extractDocumentMetadata(doc)
+		} else {
+			meta = domain.MediaMetadata{Type: domain.MediaTypeDocument}
+		}
+
 		// Download document and upload to S3
-		url := h.processMediaToS3(ctx, media, channelID, messageID, "document")
+		url := h.processMediaToS3(ctx, media, channelID, messageID, meta.Type)
 		if url != "" {
 			urls = append(urls, url)
+			metadata = append(metadata, meta)
 		}
 
 	case *tg.MessageMediaWebPage:
@@ -413,12 +430,14 @@ func (h *NewsUpdateHandler) extractMediaURLs(ctx context.Context, media tg.Messa
 			// Keep webpage URL as-is (it's already a HTTP URL)
 			if webpage.URL != "" {
 				urls = append(urls, webpage.URL)
+				metadata = append(metadata, domain.MediaMetadata{Type: domain.MediaTypeDocument})
 			}
 			// Also process photo from webpage if present
 			if webpage.Photo != nil {
 				url := h.processMediaToS3(ctx, &tg.MessageMediaPhoto{Photo: webpage.Photo}, channelID, messageID, "webpage_photo")
 				if url != "" {
 					urls = append(urls, url)
+					metadata = append(metadata, domain.MediaMetadata{Type: domain.MediaTypePhoto})
 				}
 			}
 		}
@@ -428,15 +447,54 @@ func (h *NewsUpdateHandler) extractMediaURLs(ctx context.Context, media tg.Messa
 			if geoPoint, ok := m.Geo.(*tg.GeoPoint); ok {
 				geoURL := fmt.Sprintf("geo:%.6f,%.6f", geoPoint.Lat, geoPoint.Long)
 				urls = append(urls, geoURL)
+				metadata = append(metadata, domain.MediaMetadata{Type: domain.MediaTypeDocument})
 			}
 		}
 
 	case *tg.MessageMediaContact:
 		contactURL := fmt.Sprintf("contact://tel:%s", m.PhoneNumber)
 		urls = append(urls, contactURL)
+		metadata = append(metadata, domain.MediaMetadata{Type: domain.MediaTypeDocument})
 	}
 
-	return urls
+	return urls, metadata
+}
+
+// extractDocumentMetadata extracts media type and attributes from a Telegram Document
+func (h *NewsUpdateHandler) extractDocumentMetadata(doc *tg.Document) domain.MediaMetadata {
+	meta := domain.MediaMetadata{
+		Type: domain.MediaTypeDocument, // Default
+	}
+
+	// First pass: check for video attributes (higher priority)
+	for _, attr := range doc.Attributes {
+		if a, ok := attr.(*tg.DocumentAttributeVideo); ok {
+			meta.Width = a.W
+			meta.Height = a.H
+			meta.Duration = int(a.Duration)
+			if a.RoundMessage {
+				meta.Type = domain.MediaTypeVideoNote
+			} else {
+				meta.Type = domain.MediaTypeVideo
+			}
+			return meta // Video attributes have priority, return immediately
+		}
+	}
+
+	// Second pass: check for audio attributes (only if not video)
+	for _, attr := range doc.Attributes {
+		if a, ok := attr.(*tg.DocumentAttributeAudio); ok {
+			meta.Duration = int(a.Duration)
+			if a.Voice {
+				meta.Type = domain.MediaTypeVoice
+			} else {
+				meta.Type = domain.MediaTypeAudio
+			}
+			return meta
+		}
+	}
+
+	return meta
 }
 
 // processMediaToS3 downloads media from Telegram and uploads to S3

@@ -1162,6 +1162,59 @@ func (c *MTProtoClient) getDocumentFilename(doc *tg.Document) string {
 	return fmt.Sprintf("document_%d.%s", doc.ID, ext)
 }
 
+// ExtractDocumentMetadata extracts media type and attributes from a Telegram Document
+// Returns MediaMetadata with Type set based on document attributes:
+// - video_note if DocumentAttributeVideo.RoundMessage is true
+// - voice if DocumentAttributeAudio.Voice is true
+// - video/audio/document based on other attributes
+func ExtractDocumentMetadata(doc *tg.Document) domain.MediaMetadata {
+	meta := domain.MediaMetadata{
+		Type: domain.MediaTypeDocument, // Default
+	}
+
+	// First pass: check for video attributes (highest priority)
+	for _, attr := range doc.Attributes {
+		if a, ok := attr.(*tg.DocumentAttributeVideo); ok {
+			meta.Width = a.W
+			meta.Height = a.H
+			meta.Duration = int(a.Duration)
+			if a.RoundMessage {
+				meta.Type = domain.MediaTypeVideoNote
+			} else {
+				meta.Type = domain.MediaTypeVideo
+			}
+			return meta // Video attributes have priority
+		}
+	}
+
+	// Second pass: check for audio attributes
+	for _, attr := range doc.Attributes {
+		if a, ok := attr.(*tg.DocumentAttributeAudio); ok {
+			meta.Duration = int(a.Duration)
+			if a.Voice {
+				meta.Type = domain.MediaTypeVoice
+			} else {
+				meta.Type = domain.MediaTypeAudio
+			}
+			return meta
+		}
+	}
+
+	// Third pass: check for other special attributes
+	for _, attr := range doc.Attributes {
+		switch attr.(type) {
+		case *tg.DocumentAttributeAnimated:
+			meta.Type = domain.MediaTypeDocument // GIF as document
+			return meta
+		case *tg.DocumentAttributeSticker:
+			meta.Type = domain.MediaTypeDocument // Sticker as document
+			return meta
+		}
+	}
+
+	return meta
+}
+
 // refreshPhotoFileReference gets updated file_reference for a photo via channels.getMessages
 func (c *MTProtoClient) refreshPhotoFileReference(ctx context.Context, api *tg.Client, channelID string, messageID int) (*tg.Photo, error) {
 	// Resolve channel to get InputChannel

@@ -51,6 +51,23 @@ func (h *Handlers) HandleNewsDelivery(ctx context.Context, data []byte) error {
 			// Continue without media - will try URL fallback in UseCase
 		} else {
 			h.logger.Info().Int("downloaded_count", len(downloadedFiles)).Msg("Media files downloaded for batch delivery")
+
+			// Apply metadata to downloaded files
+			for i, file := range downloadedFiles {
+				if i < len(event.MediaMetadata) {
+					meta := &event.MediaMetadata[i]
+					file.Metadata = &entities.MediaMetadata{
+						Type:     meta.Type,
+						Width:    meta.Width,
+						Height:   meta.Height,
+						Duration: meta.Duration,
+					}
+					// Update MediaType based on metadata type (more accurate than content-type guessing)
+					if meta.Type != "" {
+						file.MediaType = meta.Type
+					}
+				}
+			}
 		}
 	}
 

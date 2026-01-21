@@ -123,12 +123,21 @@ type NewsDeletedEvent struct {
 	DeletedAt  int64  `json:"deleted_at"`
 }
 
+// MediaMetadata contains media type and attributes for proper rendering
+type MediaMetadata struct {
+	Type     string `json:"type"`               // photo, video, video_note, voice, audio, document
+	Width    int    `json:"width,omitempty"`    // Video/VideoNote width
+	Height   int    `json:"height,omitempty"`   // Video/VideoNote height
+	Duration int    `json:"duration,omitempty"` // Video/VideoNote/Voice/Audio duration in seconds
+}
+
 // NewsEditedEvent is sent when a message is edited in a channel
 type NewsEditedEvent struct {
-	ChannelID   string   `json:"channel_id"`
-	ChannelName string   `json:"channel_name"`
-	MessageID   int      `json:"message_id"`
-	Content     string   `json:"content"`
-	MediaURLs   []string `json:"media_urls"`
-	EditedAt    int64    `json:"edited_at"`
+	ChannelID     string          `json:"channel_id"`
+	ChannelName   string          `json:"channel_name"`
+	MessageID     int             `json:"message_id"`
+	Content       string          `json:"content"`
+	MediaURLs     []string        `json:"media_urls"`
+	MediaMetadata []MediaMetadata `json:"media_metadata,omitempty"`
+	EditedAt      int64           `json:"edited_at"`
 }
