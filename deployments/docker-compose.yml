@@ -2,7 +2,7 @@ services:
   # MinIO S3-compatible storage for media files
   minio:
     image: minio/minio:latest
-    container_name: telegram-news-minio
+    container_name: NewsFlow-minio
     command: server /data --console-address ":9001"
     ports:
       - "9000:9000"   # S3 API
@@ -23,7 +23,7 @@ services:
   # Kafka в режиме KRaft (без Zookeeper)
   kafka:
     image: confluentinc/cp-kafka:7.5.0
-    container_name: telegram-news-kafka
+    container_name: NewsFlow-kafka
     ports:
       - "9092:9092"
       - "9093:9093"
@@ -69,7 +69,7 @@ services:
     build:
       context: ../services/account-service
       dockerfile: Dockerfile
-    container_name: telegram-news-account-service
+    container_name: NewsFlow-account-service
     depends_on:
       - kafka
       - postgres
@@ -142,7 +142,7 @@ services:
     build:
       context: ..
       dockerfile: services/subscription-service/Dockerfile
-    container_name: telegram-news-subscription-service
+    container_name: NewsFlow-subscription-service
     depends_on:
       - kafka
       - postgres
@@ -177,7 +177,7 @@ services:
     build:
       context: ../services/news-service
       dockerfile: Dockerfile
-    container_name: telegram-news-news-service
+    container_name: NewsFlow-news-service
     depends_on:
       - kafka
       - postgres
@@ -213,7 +213,7 @@ services:
     build:
       context: ..
       dockerfile: services/bot-service/Dockerfile
-    container_name: telegram-news-bot-service
+    container_name: NewsFlow-bot-service
     depends_on:
       - kafka
       - postgres
@@ -253,7 +253,7 @@ services:
   # PostgreSQL - единый контейнер для всех сервисов
   postgres:
     image: postgres:15-alpine
-    container_name: telegram-news-postgres
+    container_name: NewsFlow-postgres
     environment:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
@@ -284,7 +284,7 @@ services:
   # Kafka UI (опционально, для удобства разработки)
   kafka-ui:
     image: provectuslabs/kafka-ui:latest
-    container_name: telegram-news-kafka-ui
+    container_name: NewsFlow-kafka-ui
     depends_on:
       - kafka
     ports:

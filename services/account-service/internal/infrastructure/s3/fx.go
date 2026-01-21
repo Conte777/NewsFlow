@@ -38,7 +38,7 @@ type lifecycleParams struct {
 
 	LC     fx.Lifecycle
 	Client *Client
-	Logger *zerolog.Logger
+	Logger zerolog.Logger
 }
 
 func registerLifecycle(p lifecycleParams) {

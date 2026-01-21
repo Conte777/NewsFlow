@@ -36,11 +36,11 @@ type Client struct {
 	client    *minio.Client
 	bucket    string
 	publicURL string
-	logger    *zerolog.Logger
+	logger    zerolog.Logger
 }
 
 // NewClient creates a new S3/MinIO client
-func NewClient(cfg *Config, logger *zerolog.Logger) (*Client, error) {
+func NewClient(cfg *Config, logger zerolog.Logger) (*Client, error) {
 	client, err := minio.New(cfg.Endpoint, &minio.Options{
 		Creds:  credentials.NewStaticV4(cfg.AccessKey, cfg.SecretKey, ""),
 		Secure: cfg.UseSSL,
