@@ -46,7 +46,7 @@ import (
 
 // Создание producer
 config := kafka.ProducerConfig{
-    Brokers: []string{"localhost:9092"},
+    Brokers: []string{"localhost:9093"},
     Topic:   "news.received",
     Logger:  zerolog.New(os.Stdout),
 }
@@ -77,7 +77,7 @@ if err := producer.SendNewsReceived(ctx, news); err != nil {
 
 ```go
 config := kafka.ProducerConfig{
-    Brokers: []string{"localhost:9092"},
+    Brokers: []string{"localhost:9093"},
     Topic:   "news.received",
     Logger:  logger,
     ErrorCallback: func(news *domain.NewsItem, err error) {
@@ -94,7 +94,7 @@ config := kafka.ProducerConfig{
 
 ```go
 config := kafka.ProducerConfig{
-    Brokers:         []string{"kafka1:9092", "kafka2:9092"},
+    Brokers:         []string{"kafka1:9093", "kafka2:9093"},
     Topic:           "news.received",
     Logger:          logger,
     ErrorCallback:   errorHandler,      // опционально
@@ -129,14 +129,14 @@ services:
   kafka:
     image: confluentinc/cp-kafka:latest
     ports:
-      - "9092:9092"
+      - "9093:9093"
     environment:
       KAFKA_NODE_ID: 1
       KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: 'CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT'
-      KAFKA_ADVERTISED_LISTENERS: 'PLAINTEXT://localhost:9092'
+       KAFKA_ADVERTISED_LISTENERS: 'PLAINTEXT://localhost:9093'
       KAFKA_PROCESS_ROLES: 'broker,controller'
       KAFKA_CONTROLLER_QUORUM_VOTERS: '1@localhost:29093'
-      KAFKA_LISTENERS: 'PLAINTEXT://0.0.0.0:9092,CONTROLLER://localhost:29093'
+       KAFKA_LISTENERS: 'PLAINTEXT://0.0.0.0:9093,CONTROLLER://localhost:29093'
       KAFKA_CONTROLLER_LISTENER_NAMES: 'CONTROLLER'
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
       CLUSTER_ID: 'MkU3OEVBNTcwNTJENDM2Qk'
@@ -147,7 +147,7 @@ services:
       - "8080:8080"
     environment:
       KAFKA_CLUSTERS_0_NAME: local
-      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:9092
+       KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:9093
     depends_on:
       - kafka
 ```
@@ -161,7 +161,7 @@ docker-compose up -d
 # Создать топик
 docker exec -it kafka kafka-topics --create \
     --topic news.received \
-    --bootstrap-server localhost:9092 \
+    --bootstrap-server localhost:9093 \
     --partitions 3 \
     --replication-factor 1
 

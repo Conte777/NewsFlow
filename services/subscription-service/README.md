@@ -5,9 +5,9 @@
 ## Возможности
 
 - Хранит подписки пользователей на каналы (PostgreSQL)
+- Оркестрирует сагу подписки/отписки через Kafka
 - Предоставляет gRPC API для получения подписок
-- Обрабатывает события подписки/отписки через Kafka
-- Уведомляет account-service об изменениях подписок
+- Уведомляет account-service и bot-service о результатах
 
 ## Быстрый старт
 
@@ -47,18 +47,27 @@ go run ./cmd/app
 ```
 Bot Service ──(Kafka)──► Subscription Service ──(Kafka)──► Account Service
                                │
-     ┌─────────────────────────┼─────────────────────────┐
-     │                         │                         │
-     ▼ gRPC                    ▼ gRPC                    ▼ gRPC
-Bot Service              News Service              Account Service
+                               │ gRPC
+                               ▼
+                          News Service
 ```
 
 ### Kafka Topics
 
 | Topic | Направление | Описание |
 |-------|-------------|----------|
-| `subscription.created` | Consumer/Producer | Новая подписка |
-| `subscription.cancelled` | Consumer/Producer | Отписка |
+| `subscription.requested` | Consumer | Запрос на подписку от bot-service |
+| `subscription.pending` | Producer | Запрос на подписку в account-service |
+| `subscription.activated` | Consumer | Подтверждение подписки от account-service |
+| `subscription.failed` | Consumer | Ошибка подписки от account-service |
+| `subscription.confirmed` | Producer | Подтверждение для bot-service |
+| `subscription.rejected` | Producer | Отклонение для bot-service |
+| `unsubscription.requested` | Consumer | Запрос на отписку от bot-service |
+| `unsubscription.pending` | Producer | Запрос на отписку в account-service |
+| `unsubscription.completed` | Consumer | Подтверждение отписки от account-service |
+| `unsubscription.failed` | Consumer | Ошибка отписки от account-service |
+| `unsubscription.confirmed` | Producer | Подтверждение для bot-service |
+| `unsubscription.rejected` | Producer | Отклонение для bot-service |
 
 ### gRPC API
 

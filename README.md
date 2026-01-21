@@ -4,7 +4,7 @@
 
 ## Архитектура
 
-Проект построен на основе микросервисной архитектуры с использованием Clean Architecture принципов. Все сервисы взаимодействуют асинхронно через Apache Kafka.
+Проект построен на основе микросервисной архитектуры с использованием Clean Architecture принципов. Основное взаимодействие между сервисами происходит асинхронно через Apache Kafka, дополняется gRPC вызовами.
 
 ### Микросервисы
 
@@ -14,19 +14,20 @@
    - Отправка новостей пользователям
 
 2. **Subscription Service** - Управление подписками
-   - Хранение информации о подписках пользователей
-   - CRUD операции с подписками
+   - Сага подписка/отписка через Kafka (`subscription.*`, `unsubscription.*`)
+   - gRPC для получения подписок/подписчиков
    - База данных: PostgreSQL
 
 3. **News Service** - Управление новостями
-   - Хранение отправленных новостей
-   - Отслеживание доставки новостей пользователям
+   - Хранение полученных новостей, история доставки
+   - Маршрутизация новостей в bot-service
+   - Обработка событий редактирования/удаления
    - База данных: PostgreSQL
 
 4. **Account Service** - Управление Telegram аккаунтами
    - Управление несколькими Telegram аккаунтами (MTProto)
-   - Подписка/отписка от каналов
-   - Сбор новостей с каналов
+   - Подписка/отписка от каналов по саге
+   - Сбор новостей и публикация в Kafka
 
 ### Схема взаимодействия
 
@@ -45,15 +46,21 @@
 ```
 
 **Коммуникация:**
-- **Kafka**: subscription.created/cancelled, news.received, news.deliver
-- **gRPC**: GetUserSubscriptions, GetChannelSubscribers
+- **Kafka (подписки, сага):**
+  - `subscription.requested` → `subscription.pending` → `subscription.activated|failed` → `subscription.confirmed|rejected`
+  - `unsubscription.requested` → `unsubscription.pending` → `unsubscription.completed|failed` → `unsubscription.confirmed|rejected`
+- **Kafka (новости):**
+  - `news.received` (account-service → news-service)
+  - `news.deliver` (news-service → bot-service)
+  - `news.delivered` (bot-service → news-service)
+  - `news.edited`/`news.deleted` (account-service → news-service) → `news.edit`/`news.delete` (news-service → bot-service)
+- **gRPC:** GetUserSubscriptions, GetChannelSubscribers
 
-### Kafka Topics
+### Kafka Topics (основные)
 
-- `subscription.created` - Новая подписка создана
-- `subscription.cancelled` - Подписка отменена
-- `news.received` - Новая новость получена с канала
-- `news.deliver` - Доставка новости пользователю
+- `subscription.requested`, `subscription.pending`, `subscription.activated`, `subscription.failed`, `subscription.confirmed`, `subscription.rejected`
+- `unsubscription.requested`, `unsubscription.pending`, `unsubscription.completed`, `unsubscription.failed`, `unsubscription.confirmed`, `unsubscription.rejected`
+- `news.received`, `news.deliver`, `news.delivered`, `news.edited`, `news.deleted`, `news.edit`, `news.delete`
 
 ## Технологический стек
 
@@ -106,7 +113,7 @@ service-name/
 
 ### Требования
 
-- Go 1.21+
+- Go 1.24+
 - Docker и Docker Compose
 - PostgreSQL 15+
 - Apache Kafka
@@ -116,7 +123,7 @@ service-name/
 1. Клонировать репозиторий:
 ```bash
 git clone <repository-url>
-cd Project_practic
+cd NewsFlow
 ```
 
 2. Запустить инфраструктуру:
@@ -135,10 +142,10 @@ cp .env.example .env
 4. Запустить сервисы:
 ```bash
 # В отдельных терминалах
-cd services/bot-service && go run cmd/app/main.go
-cd services/subscription-service && go run cmd/app/main.go
-cd services/news-service && go run cmd/app/main.go
-cd services/account-service && go run cmd/app/main.go
+cd services/bot-service && go run ./cmd/app
+cd services/subscription-service && go run ./cmd/app
+cd services/news-service && go run ./cmd/app
+cd services/account-service && go run ./cmd/app
 ```
 
 ## Конфигурация
