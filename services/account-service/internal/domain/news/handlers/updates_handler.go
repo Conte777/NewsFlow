@@ -29,11 +29,12 @@ type pendingAlbum struct {
 
 // NewsUpdateHandler handles real-time news updates from Telegram
 type NewsUpdateHandler struct {
-	channelRepo channeldeps.ChannelRepository
-	msgIDCache  channeldeps.MessageIDCache
-	producer    domain.KafkaProducer
-	logger      zerolog.Logger
-	metrics     *metrics.Metrics
+	channelRepo    channeldeps.ChannelRepository
+	msgIDCache     channeldeps.MessageIDCache
+	recentMsgCache channeldeps.RecentMessagesCache
+	producer       domain.KafkaProducer
+	logger         zerolog.Logger
+	metrics        *metrics.Metrics
 
 	// Media processing
 	mediaUploader    domain.MediaUploader
@@ -54,19 +55,21 @@ type NewsUpdateHandler struct {
 func NewNewsUpdateHandler(
 	channelRepo channeldeps.ChannelRepository,
 	msgIDCache channeldeps.MessageIDCache,
+	recentMsgCache channeldeps.RecentMessagesCache,
 	producer domain.KafkaProducer,
 	logger zerolog.Logger,
 	m *metrics.Metrics,
 	mediaUploader domain.MediaUploader,
 ) *NewsUpdateHandler {
 	h := &NewsUpdateHandler{
-		channelRepo:   channelRepo,
-		msgIDCache:    msgIDCache,
-		producer:      producer,
-		logger:        logger.With().Str("component", "news_update_handler").Logger(),
-		metrics:       m,
-		mediaUploader: mediaUploader,
-		albumBuffer:   make(map[int64]*pendingAlbum),
+		channelRepo:    channelRepo,
+		msgIDCache:     msgIDCache,
+		recentMsgCache: recentMsgCache,
+		producer:       producer,
+		logger:         logger.With().Str("component", "news_update_handler").Logger(),
+		metrics:        m,
+		mediaUploader:  mediaUploader,
+		albumBuffer:    make(map[int64]*pendingAlbum),
 	}
 	h.healthy.Store(true)
 	h.lastUpdateTime.Store(time.Now())
@@ -303,6 +306,11 @@ func (h *NewsUpdateHandler) sendNewsItem(ctx context.Context, newsItem *domain.N
 			Msg("failed to send news to Kafka")
 		h.metrics.RecordKafkaError("send_failed")
 		return
+	}
+
+	// Add to recent messages cache for deletion checking fallback
+	if h.recentMsgCache != nil {
+		h.recentMsgCache.Add(channelID, msgID)
 	}
 
 	// Update DB asynchronously (persistence for restarts)

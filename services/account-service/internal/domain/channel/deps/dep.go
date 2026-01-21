@@ -58,3 +58,26 @@ type SagaProducer interface {
 	SendUnsubscriptionFailed(ctx context.Context, userID int64, channelID, reason string) error
 	Close() error
 }
+
+// RecentMessagesCache stores recent message IDs per channel for deletion checking
+// Used by DeletionChecker to track which messages to verify
+type RecentMessagesCache interface {
+	// Add adds a message ID to the cache for a channel
+	Add(channelID string, messageID int)
+
+	// GetRecent returns the most recent N message IDs for a channel
+	// Returns IDs in descending order (newest first)
+	GetRecent(channelID string, count int) []int
+
+	// Remove removes specific message IDs from the cache for a channel
+	Remove(channelID string, messageIDs []int)
+
+	// GetAllChannelIDs returns all channel IDs that have cached messages
+	GetAllChannelIDs() []string
+
+	// Clear removes all entries for a channel
+	Clear(channelID string)
+
+	// Count returns the number of cached message IDs for a channel
+	Count(channelID string) int
+}

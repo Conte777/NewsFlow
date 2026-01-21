@@ -1436,5 +1436,95 @@ func (c *MTProtoClient) IsUpdatesHealthy() bool {
 	return c.updatesHealthy.Load()
 }
 
+// CheckMessagesExist checks which of the provided message IDs still exist in the channel
+// Returns a slice of message IDs that exist (were not deleted)
+// Uses channels.getMessages API to check existence
+func (c *MTProtoClient) CheckMessagesExist(ctx context.Context, channelID string, messageIDs []int) ([]int, error) {
+	if len(messageIDs) == 0 {
+		return []int{}, nil
+	}
+
+	// Validate channel ID
+	if err := validateChannelID(channelID); err != nil {
+		return nil, err
+	}
+
+	c.mu.RLock()
+	if !c.connected || c.api == nil {
+		c.mu.RUnlock()
+		return nil, domain.ErrNotConnected
+	}
+	api := c.api
+	c.mu.RUnlock()
+
+	// Apply rate limiting
+	if err := c.rateLimiter.Wait(ctx); err != nil {
+		return nil, fmt.Errorf("rate limit wait cancelled: %w", err)
+	}
+
+	// Resolve the channel
+	inputChannel, err := c.resolveChannel(ctx, channelID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to resolve channel: %w", err)
+	}
+
+	// Build input message IDs
+	inputMsgIDs := make([]tg.InputMessageClass, len(messageIDs))
+	for i, msgID := range messageIDs {
+		inputMsgIDs[i] = &tg.InputMessageID{ID: msgID}
+	}
+
+	// Get messages from channel
+	result, err := api.ChannelsGetMessages(ctx, &tg.ChannelsGetMessagesRequest{
+		Channel: inputChannel,
+		ID:      inputMsgIDs,
+	})
+	if err != nil {
+		// Handle specific errors
+		if tgerr.Is(err, "CHANNEL_INVALID") || tgerr.Is(err, "CHANNEL_PRIVATE") {
+			c.logger.Warn().Err(err).Str("channel_id", channelID).Msg("channel access error during message check")
+			return nil, err
+		}
+		return nil, fmt.Errorf("failed to get messages: %w", err)
+	}
+
+	// Extract existing message IDs
+	var existingIDs []int
+
+	switch msgs := result.(type) {
+	case *tg.MessagesChannelMessages:
+		for _, msg := range msgs.Messages {
+			switch m := msg.(type) {
+			case *tg.Message:
+				existingIDs = append(existingIDs, m.ID)
+			case *tg.MessageService:
+				existingIDs = append(existingIDs, m.ID)
+			case *tg.MessageEmpty:
+				// Message was deleted - don't add to existing
+				continue
+			}
+		}
+	case *tg.MessagesMessages:
+		for _, msg := range msgs.Messages {
+			switch m := msg.(type) {
+			case *tg.Message:
+				existingIDs = append(existingIDs, m.ID)
+			case *tg.MessageService:
+				existingIDs = append(existingIDs, m.ID)
+			case *tg.MessageEmpty:
+				continue
+			}
+		}
+	}
+
+	c.logger.Debug().
+		Str("channel_id", channelID).
+		Int("requested", len(messageIDs)).
+		Int("existing", len(existingIDs)).
+		Msg("checked message existence")
+
+	return existingIDs, nil
+}
+
 // Ensure MTProtoClient implements domain.TelegramClient interface
 var _ domain.TelegramClient = (*MTProtoClient)(nil)

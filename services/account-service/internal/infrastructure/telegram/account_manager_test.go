@@ -60,6 +60,10 @@ func (m *mockTelegramClient) IsUpdatesHealthy() bool {
 	return m.updatesHealthy
 }
 
+func (m *mockTelegramClient) CheckMessagesExist(ctx context.Context, channelID string, messageIDs []int) ([]int, error) {
+	return messageIDs, nil // Mock returns all messages as existing
+}
+
 func (m *mockTelegramClient) setUpdatesHealthy(healthy bool) {
 	m.mu.Lock()
 	defer m.mu.Unlock()

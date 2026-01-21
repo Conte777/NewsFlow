@@ -46,6 +46,10 @@ type TelegramClient interface {
 
 	// IsUpdatesHealthy returns true if real-time updates are working
 	IsUpdatesHealthy() bool
+
+	// CheckMessagesExist checks which of the provided message IDs still exist in the channel
+	// Returns a slice of message IDs that exist (were not deleted)
+	CheckMessagesExist(ctx context.Context, channelID string, messageIDs []int) ([]int, error)
 }
 
 // AccountManager manages multiple Telegram accounts

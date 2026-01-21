@@ -79,9 +79,11 @@ type ServiceConfig struct {
 
 // NewsConfig holds news collection configuration
 type NewsConfig struct {
-	PollInterval         time.Duration // Interval between news collection cycles (when real-time updates are disabled)
-	FallbackPollInterval time.Duration // Fallback interval when real-time updates ARE working (longer, for catching missed updates)
-	CollectionTimeout    time.Duration // Timeout for single collection cycle
+	PollInterval           time.Duration // Interval between news collection cycles (when real-time updates are disabled)
+	FallbackPollInterval   time.Duration // Fallback interval when real-time updates ARE working (longer, for catching missed updates)
+	CollectionTimeout      time.Duration // Timeout for single collection cycle
+	DeletionCheckInterval  time.Duration // Interval for checking deleted messages (fallback mechanism)
+	DeletionCheckLookback  int           // Number of recent messages to check per channel
 }
 
 // S3Config holds S3/MinIO configuration for media storage
@@ -117,6 +119,16 @@ func Load() (*Config, error) {
 	collectionTimeout, err := time.ParseDuration(getEnv("NEWS_COLLECTION_TIMEOUT", "5m"))
 	if err != nil {
 		return nil, fmt.Errorf("invalid NEWS_COLLECTION_TIMEOUT: %w", err)
+	}
+
+	deletionCheckInterval, err := time.ParseDuration(getEnv("DELETION_CHECK_INTERVAL", "30s"))
+	if err != nil {
+		return nil, fmt.Errorf("invalid DELETION_CHECK_INTERVAL: %w", err)
+	}
+
+	deletionCheckLookback, err := strconv.Atoi(getEnv("DELETION_CHECK_LOOKBACK", "100"))
+	if err != nil {
+		return nil, fmt.Errorf("invalid DELETION_CHECK_LOOKBACK: %w", err)
 	}
 
 	shutdownTimeout, err := time.ParseDuration(getEnv("SERVICE_SHUTDOWN_TIMEOUT", "30s"))
@@ -175,9 +187,11 @@ func Load() (*Config, error) {
 			ShutdownTimeout: shutdownTimeout,
 		},
 		News: NewsConfig{
-			PollInterval:         pollInterval,
-			FallbackPollInterval: fallbackPollInterval,
-			CollectionTimeout:    collectionTimeout,
+			PollInterval:          pollInterval,
+			FallbackPollInterval:  fallbackPollInterval,
+			CollectionTimeout:     collectionTimeout,
+			DeletionCheckInterval: deletionCheckInterval,
+			DeletionCheckLookback: deletionCheckLookback,
 		},
 		S3: S3Config{
 			Endpoint:  getEnv("S3_ENDPOINT", "localhost:9000"),

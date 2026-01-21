@@ -18,10 +18,11 @@ var Module = fx.Module("news-handlers",
 func NewNewsUpdateHandlerFx(
 	channelRepo channeldeps.ChannelRepository,
 	msgIDCache channeldeps.MessageIDCache,
+	recentMsgCache channeldeps.RecentMessagesCache,
 	producer domain.KafkaProducer,
 	logger zerolog.Logger,
 	m *metrics.Metrics,
 	mediaUploader domain.MediaUploader,
 ) *NewsUpdateHandler {
-	return NewNewsUpdateHandler(channelRepo, msgIDCache, producer, logger, m, mediaUploader)
+	return NewNewsUpdateHandler(channelRepo, msgIDCache, recentMsgCache, producer, logger, m, mediaUploader)
 }
