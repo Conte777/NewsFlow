@@ -1023,8 +1023,9 @@ func (c *MTProtoClient) SetNewsHandler(handler *handlers.NewsUpdateHandler) {
 
 // createMediaDownloadFunc creates a function for downloading media from Telegram
 // This function captures the MTProtoClient and uses its API client for downloading
+// Supports FILE_REFERENCE_EXPIRED retry by using channelID and messageID to refresh
 func (c *MTProtoClient) createMediaDownloadFunc() domain.MediaDownloadFunc {
-	return func(ctx context.Context, media interface{}) ([]byte, string, string, error) {
+	return func(ctx context.Context, media interface{}, channelID string, messageID int) ([]byte, string, string, error) {
 		c.mu.RLock()
 		api := c.api
 		c.mu.RUnlock()
@@ -1035,13 +1036,38 @@ func (c *MTProtoClient) createMediaDownloadFunc() domain.MediaDownloadFunc {
 
 		switch m := media.(type) {
 		case *tg.MessageMediaPhoto:
-			return c.downloadPhoto(ctx, api, m)
+			return c.downloadPhotoWithRefresh(ctx, api, m, channelID, messageID)
 		case *tg.MessageMediaDocument:
-			return c.downloadDocument(ctx, api, m)
+			return c.downloadDocumentWithRefresh(ctx, api, m, channelID, messageID)
 		default:
 			return nil, "", "", fmt.Errorf("unsupported media type: %T", media)
 		}
 	}
+}
+
+// findLargestPhotoSize finds the thumbSize string for the largest photo size
+// Supports both PhotoSize and PhotoSizeProgressive types
+func (c *MTProtoClient) findLargestPhotoSize(photo *tg.Photo) string {
+	var thumbSize string
+	var maxPixels int
+
+	for _, size := range photo.Sizes {
+		switch ps := size.(type) {
+		case *tg.PhotoSize:
+			pixels := ps.W * ps.H
+			if pixels > maxPixels {
+				maxPixels = pixels
+				thumbSize = ps.Type
+			}
+		case *tg.PhotoSizeProgressive:
+			pixels := ps.W * ps.H
+			if pixels > maxPixels {
+				maxPixels = pixels
+				thumbSize = ps.Type
+			}
+		}
+	}
+	return thumbSize
 }
 
 // downloadPhoto downloads a photo from Telegram
@@ -1051,20 +1077,10 @@ func (c *MTProtoClient) downloadPhoto(ctx context.Context, api *tg.Client, media
 		return nil, "", "", fmt.Errorf("invalid photo type")
 	}
 
-	// Find the largest photo size
-	var largestSize *tg.PhotoSize
-	var maxSize int
-	for _, size := range photo.Sizes {
-		if ps, ok := size.(*tg.PhotoSize); ok {
-			if ps.Size > maxSize {
-				maxSize = ps.Size
-				largestSize = ps
-			}
-		}
-	}
-
-	if largestSize == nil {
-		return nil, "", "", fmt.Errorf("no photo sizes found")
+	// Find the largest photo size (supports PhotoSize and PhotoSizeProgressive)
+	thumbSize := c.findLargestPhotoSize(photo)
+	if thumbSize == "" {
+		return nil, "", "", fmt.Errorf("no suitable photo sizes found")
 	}
 
 	// Create input file location for photo
@@ -1072,7 +1088,7 @@ func (c *MTProtoClient) downloadPhoto(ctx context.Context, api *tg.Client, media
 		ID:            photo.ID,
 		AccessHash:    photo.AccessHash,
 		FileReference: photo.FileReference,
-		ThumbSize:     largestSize.Type,
+		ThumbSize:     thumbSize,
 	}
 
 	// Download the photo
@@ -1144,6 +1160,212 @@ func (c *MTProtoClient) getDocumentFilename(doc *tg.Document) string {
 	}
 
 	return fmt.Sprintf("document_%d.%s", doc.ID, ext)
+}
+
+// refreshPhotoFileReference gets updated file_reference for a photo via channels.getMessages
+func (c *MTProtoClient) refreshPhotoFileReference(ctx context.Context, api *tg.Client, channelID string, messageID int) (*tg.Photo, error) {
+	// Resolve channel to get InputChannel
+	inputChannel, err := c.resolveChannel(ctx, channelID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to resolve channel for refresh: %w", err)
+	}
+
+	result, err := api.ChannelsGetMessages(ctx, &tg.ChannelsGetMessagesRequest{
+		Channel: inputChannel,
+		ID:      []tg.InputMessageClass{&tg.InputMessageID{ID: messageID}},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to refresh file reference: %w", err)
+	}
+
+	channelMsgs, ok := result.(*tg.MessagesChannelMessages)
+	if !ok || len(channelMsgs.Messages) == 0 {
+		return nil, fmt.Errorf("no messages returned when refreshing file reference")
+	}
+
+	msg, ok := channelMsgs.Messages[0].(*tg.Message)
+	if !ok {
+		return nil, fmt.Errorf("unexpected message type when refreshing file reference")
+	}
+
+	mediaPhoto, ok := msg.Media.(*tg.MessageMediaPhoto)
+	if !ok {
+		return nil, fmt.Errorf("message does not contain photo")
+	}
+
+	photo, ok := mediaPhoto.Photo.(*tg.Photo)
+	if !ok {
+		return nil, fmt.Errorf("invalid photo type in refreshed message")
+	}
+
+	return photo, nil
+}
+
+// refreshDocumentFileReference gets updated file_reference for a document via channels.getMessages
+func (c *MTProtoClient) refreshDocumentFileReference(ctx context.Context, api *tg.Client, channelID string, messageID int) (*tg.Document, error) {
+	// Resolve channel to get InputChannel
+	inputChannel, err := c.resolveChannel(ctx, channelID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to resolve channel for refresh: %w", err)
+	}
+
+	result, err := api.ChannelsGetMessages(ctx, &tg.ChannelsGetMessagesRequest{
+		Channel: inputChannel,
+		ID:      []tg.InputMessageClass{&tg.InputMessageID{ID: messageID}},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to refresh file reference: %w", err)
+	}
+
+	channelMsgs, ok := result.(*tg.MessagesChannelMessages)
+	if !ok || len(channelMsgs.Messages) == 0 {
+		return nil, fmt.Errorf("no messages returned when refreshing file reference")
+	}
+
+	msg, ok := channelMsgs.Messages[0].(*tg.Message)
+	if !ok {
+		return nil, fmt.Errorf("unexpected message type when refreshing file reference")
+	}
+
+	mediaDoc, ok := msg.Media.(*tg.MessageMediaDocument)
+	if !ok {
+		return nil, fmt.Errorf("message does not contain document")
+	}
+
+	doc, ok := mediaDoc.Document.(*tg.Document)
+	if !ok {
+		return nil, fmt.Errorf("invalid document type in refreshed message")
+	}
+
+	return doc, nil
+}
+
+// downloadPhotoWithRefresh downloads a photo with retry on FILE_REFERENCE_EXPIRED
+func (c *MTProtoClient) downloadPhotoWithRefresh(ctx context.Context, api *tg.Client, media *tg.MessageMediaPhoto, channelID string, messageID int) ([]byte, string, string, error) {
+	photo, ok := media.Photo.(*tg.Photo)
+	if !ok {
+		return nil, "", "", fmt.Errorf("invalid photo type")
+	}
+
+	thumbSize := c.findLargestPhotoSize(photo)
+	if thumbSize == "" {
+		return nil, "", "", fmt.Errorf("no suitable photo sizes found")
+	}
+
+	// First attempt
+	data, err := c.tryDownloadPhoto(ctx, api, photo, thumbSize)
+	if err == nil {
+		filename := fmt.Sprintf("photo_%d.jpg", photo.ID)
+		return data, filename, "image/jpeg", nil
+	}
+
+	// Check for FILE_REFERENCE_EXPIRED
+	if tgerr.Is(err, "FILE_REFERENCE_EXPIRED") {
+		c.logger.Debug().
+			Str("channel_id", channelID).
+			Int("message_id", messageID).
+			Msg("file reference expired, refreshing...")
+
+		refreshedPhoto, refreshErr := c.refreshPhotoFileReference(ctx, api, channelID, messageID)
+		if refreshErr != nil {
+			return nil, "", "", fmt.Errorf("failed to refresh file reference: %w", refreshErr)
+		}
+
+		// Retry with refreshed photo
+		data, err = c.tryDownloadPhoto(ctx, api, refreshedPhoto, thumbSize)
+		if err != nil {
+			return nil, "", "", err
+		}
+
+		filename := fmt.Sprintf("photo_%d.jpg", refreshedPhoto.ID)
+		return data, filename, "image/jpeg", nil
+	}
+
+	return nil, "", "", err
+}
+
+// tryDownloadPhoto attempts to download a photo
+func (c *MTProtoClient) tryDownloadPhoto(ctx context.Context, api *tg.Client, photo *tg.Photo, thumbSize string) ([]byte, error) {
+	location := &tg.InputPhotoFileLocation{
+		ID:            photo.ID,
+		AccessHash:    photo.AccessHash,
+		FileReference: photo.FileReference,
+		ThumbSize:     thumbSize,
+	}
+
+	d := downloader.NewDownloader()
+	var buf bytes.Buffer
+	_, err := d.Download(api, location).Stream(ctx, &buf)
+	if err != nil {
+		return nil, fmt.Errorf("failed to download photo: %w", err)
+	}
+
+	return buf.Bytes(), nil
+}
+
+// downloadDocumentWithRefresh downloads a document with retry on FILE_REFERENCE_EXPIRED
+func (c *MTProtoClient) downloadDocumentWithRefresh(ctx context.Context, api *tg.Client, media *tg.MessageMediaDocument, channelID string, messageID int) ([]byte, string, string, error) {
+	doc, ok := media.Document.(*tg.Document)
+	if !ok {
+		return nil, "", "", fmt.Errorf("invalid document type")
+	}
+
+	// First attempt
+	data, err := c.tryDownloadDocument(ctx, api, doc)
+	if err == nil {
+		filename := c.getDocumentFilename(doc)
+		contentType := doc.MimeType
+		if contentType == "" {
+			contentType = "application/octet-stream"
+		}
+		return data, filename, contentType, nil
+	}
+
+	// Check for FILE_REFERENCE_EXPIRED
+	if tgerr.Is(err, "FILE_REFERENCE_EXPIRED") {
+		c.logger.Debug().
+			Str("channel_id", channelID).
+			Int("message_id", messageID).
+			Msg("file reference expired for document, refreshing...")
+
+		refreshedDoc, refreshErr := c.refreshDocumentFileReference(ctx, api, channelID, messageID)
+		if refreshErr != nil {
+			return nil, "", "", fmt.Errorf("failed to refresh file reference: %w", refreshErr)
+		}
+
+		// Retry with refreshed document
+		data, err = c.tryDownloadDocument(ctx, api, refreshedDoc)
+		if err != nil {
+			return nil, "", "", err
+		}
+
+		filename := c.getDocumentFilename(refreshedDoc)
+		contentType := refreshedDoc.MimeType
+		if contentType == "" {
+			contentType = "application/octet-stream"
+		}
+		return data, filename, contentType, nil
+	}
+
+	return nil, "", "", err
+}
+
+// tryDownloadDocument attempts to download a document
+func (c *MTProtoClient) tryDownloadDocument(ctx context.Context, api *tg.Client, doc *tg.Document) ([]byte, error) {
+	location := &tg.InputDocumentFileLocation{
+		ID:            doc.ID,
+		AccessHash:    doc.AccessHash,
+		FileReference: doc.FileReference,
+	}
+
+	d := downloader.NewDownloader()
+	var buf bytes.Buffer
+	_, err := d.Download(api, location).Stream(ctx, &buf)
+	if err != nil {
+		return nil, fmt.Errorf("failed to download document: %w", err)
+	}
+
+	return buf.Bytes(), nil
 }
 
 // Ensure io.Writer is used to silence import warning

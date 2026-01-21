@@ -461,8 +461,8 @@ func (h *NewsUpdateHandler) processMediaToS3(ctx context.Context, media tg.Messa
 		return ""
 	}
 
-	// Download media from Telegram
-	data, filename, contentType, err := downloadFn(ctx, media)
+	// Download media from Telegram (with FILE_REFERENCE_EXPIRED retry support)
+	data, filename, contentType, err := downloadFn(ctx, media, channelID, messageID)
 	if err != nil {
 		h.logger.Warn().Err(err).
 			Str("channel_id", channelID).

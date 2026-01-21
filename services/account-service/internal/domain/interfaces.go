@@ -149,5 +149,6 @@ type MediaUploader interface {
 }
 
 // MediaDownloadFunc downloads media from Telegram and returns data with metadata
+// channelID and messageID are used for refreshing expired file references
 // Returns: data, filename, contentType, error
-type MediaDownloadFunc func(ctx context.Context, media interface{}) ([]byte, string, string, error)
+type MediaDownloadFunc func(ctx context.Context, media interface{}, channelID string, messageID int) ([]byte, string, string, error)
